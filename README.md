@@ -1,2 +1,2 @@
 # altair-light
-Altair Light Project
+Altair Light Project - v1.0.0
