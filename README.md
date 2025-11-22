@@ -1,10 +1,81 @@
-# <PROJECT_NAME>
+# altair-light
 
-<PROJECT_DESCRIPTION>
+Altair Light is a foundational, minimalist Node.js web server framework designed for **AI-assisted development**. Fork this repository, configure it, and use AI assistants and tools to generate websites and applications by working with Altair-Light's primitives and component system.
 
-## CONFIGURATION
+**Source code**: https://github.com/renegonzaleztorres/altair-light.git
+
+## Philosophy
+
+Altair Light is built on a simple premise: **fork, configure, prompt, build**.
+
+1. **Fork** this repository to create your own foundation
+2. **Configure** basic settings (project name, port, etc.)
+3. **Prompt** AI assistants and tools to generate pages, components, and features
+4. **Build** using Altair-Light's primitives and conventions — let the AI assistant generate and manage all the code
+
+The framework provides a structured foundation with clear conventions, making it easy for AI assistants to understand your project structure and generate code that fits seamlessly into your application.
+
+## Prerequisites
+
+- **Node.js**: >= 20.11.1 (see `package.json` for exact version)
+- **npm**: Comes with Node.js
+
+## Getting Started
+
+### Fork and Configure
+
+1. **Fork this repository** to create your own foundation:
+   
+   If you want your fork to use a different name:
+   - Fork the repo normally on GitHub
+   - Open Settings → Repository name in your fork
+   - Rename it to whatever you prefer (example: my-app)
+   - Clone your renamed fork
+
+2. **Configure for your project**:
+   - Update `package.json` with your project name, version, and description
+   - Modify `README.md` (this file) to reflect your project
+   - Update `CHANGELOG.md` with your project name and dates
+   - Adjust `config/default.json` with your settings
+   - Use the existing `kinetic` space or create your own space in `spaces/`
+
+### Installation
+
+1. **Install dependencies**:
+
+   ```sh
+   npm install
+   ```
+
+2. **Create environment file**:
+   Create a `.env` file in the project root (see [Configuration](#configuration) section below for details)
+
+3. **Verify configuration**:
+   Ensure `/config/default.json` exists with at minimum:
+   ```json
+   {
+     "version": "1.0.0",
+     "localPort": 3000
+   }
+   ```
+
+## Quick Start
+
+Start the development server:
+
+```sh
+npm start
+```
+
+The server will start on **http://localhost:3000** (or the port specified in your config).
+
+To change the port, edit `/config/default.json` and set `localPort` to your desired value.
+
+## Configuration
 
 ### Environment Variables (.env)
+
+Create a `.env` file in the project root:
 
 ```dotenv
 NODE_ENV="development"
@@ -16,17 +87,17 @@ MINIFY=true
 DEBUG=true
 ```
 
-- APP_NAME — Your project’s application name.
-- ACTIVE_SPACE — Path to the working “space” or directory where app files are "sourced" from.
-- PUBLIC_LOCATION — Directory under ACTIVE_SPACE that acts as the public root for static assets.
-- PAGES_LOCATION — Subdirectory under ACTIVE_SPACE containing HTML pages that map to routes.
-- MINIFY — If true, CSS and JS assets will be minified during build or serve.
-- DEBUG — If true, debug output will be printed to the console.
+**Variable Descriptions:**
+- `APP_NAME` — Your project's application name
+- `ACTIVE_SPACE` — Path to the working "space" or directory where app files are sourced from
+- `PUBLIC_LOCATION` — Directory under ACTIVE_SPACE that acts as the public root for static assets
+- `PAGES_LOCATION` — Subdirectory under ACTIVE_SPACE containing HTML pages that map to routes
+- `MINIFY` — If `true`, CSS and JS assets will be minified during build or serve
+- `DEBUG` — If `true`, debug output will be printed to the console
 
 ### Config File
 
-Edit /config/default.json if changing the port and/or version number.
-At minimum, it should contain:
+Edit `/config/default.json` to change the port and/or version number. At minimum, it should contain:
 
 ```json
 {
@@ -35,54 +106,11 @@ At minimum, it should contain:
 }
 ```
 
-### Make this file your own!
+Environment-specific configs (`development.json`, `production.json`, `staging.json`) can override or extend these settings.
 
-Replace: <PROJECT_NAME> <PROJECT_DESCRIPTION>
+## Documentation
 
-### Make /package.json file your own!
-
-Replace: name, version, description, author 
-
-### Make /CHANGELOG.md file your own!
-
-Replace: <APP_NAME> <yyyy_mm_dd> and maintain the file as your project grows.
-
-## INSTALLATION
-
-### Install packages
-
-Node.js is required
-
-```sh
-$ node -v
-$ npm install
-```
-
-## Start App (Server)
-
-```sh
-$ npm start
-```
-
-### Browser address: http://localhost:3000
-### To change port, see /config for "localPort": 3000
-
-## CUSTOMIZATION / STRUCTURE
-
-```
-index.js
-/web-app
- |
- -- main.js
-    web-app.js
-/builders
- |
- --
-```  
-
-### Altair (module)
-
-See the [README](./altair/README.md).
+- **[altair/README.md](./altair/README.md)** — Altair module documentation
 
 ## License
 

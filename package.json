@@ -1,7 +1,7 @@
 {
   "name": "altair-light",
   "version": "1.0.0",
-  "description": "Altair Light, a super minimalist web server based on the Altair module. Use to build Generative AI apps & sites",
+  "description": "altair-light, a foundational, super minimalist web server based on the Altair module. Designed for AI-assisted development of apps & sites",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -21,7 +21,7 @@
     "terser": "^5.19.2"
   },
   "engines": {
-    "node": ">=20.11.1"
+    "node": "^20.11.1"
   },
   "type": "module"
 }
