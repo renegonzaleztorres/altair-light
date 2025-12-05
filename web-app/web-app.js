@@ -14,7 +14,8 @@ class WebApp extends WebServer{
     let v = {};
     v.version = this.settings.version;
     v.ver = this.settings.version;
-
+    v.appname = this.settings.appName;
+    
     return v;
 
   } // additionalVarDefinitions

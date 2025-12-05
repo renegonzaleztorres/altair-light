@@ -17,7 +17,7 @@ The framework provides a structured foundation with clear conventions, making it
 
 ## Prerequisites
 
-- **Node.js**: >= 20.11.1 (see `package.json` for exact version)
+- **Node.js**: >= 24 (see `package.json` for exact version)
 - **npm**: Comes with Node.js
 
 ## Getting Started
@@ -34,16 +34,17 @@ The framework provides a structured foundation with clear conventions, making it
 
 2. **Configure for your project**:
    - Update `package.json` with your project name, version, and description
-   - Modify `README.md` (this file) to reflect your project
    - Update `CHANGELOG.md` with your project name and dates
    - Adjust `config/default.json` with your settings
    - Use the existing `kinetic` space or create your own space in `spaces/`
+   - Modify `README.md` (this file) to reflect your project!
 
 ### Installation
 
 1. **Install dependencies**:
 
    ```sh
+   node -v
    npm install
    ```
 
