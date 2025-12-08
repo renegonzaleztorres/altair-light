@@ -6,7 +6,20 @@ import WebServer from '../altair/altair.js';
 
 class WebApp extends WebServer{
 
+  constructor() {
+
+    super();
+
+  } // constructor
+
   // Depending on the application, override any methods from WebServer such as routes, additionalRoutes, additionalVarDefinitions, etc.
+
+  // additionalRoutes : override
+  additionalRoutes = () => {
+    
+    return;
+
+  } // additionalRoutes
 
   // additionalVarDefinitions : override
   additionalVarDefinitions = () => {
@@ -20,6 +33,6 @@ class WebApp extends WebServer{
 
   } // additionalVarDefinitions
 
-} // WebApp*/
+} // WebApp
 
 export default WebApp;

@@ -13,7 +13,7 @@ class WebServer extends ExpressServer {
     super();
     this.tarazed = new Tarazed({ appPath: path.join(this.settings.appRootPath, this.settings.activeSpace), readoutCallback: this.readout });
 
-  }
+  } // constructor
 
   // routes : definitions (override when needed or override additionalRoutes() to add custom routes)
   routes = () => {

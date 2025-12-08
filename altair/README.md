@@ -6,7 +6,7 @@ A super minimalist and efficient web server module.
 
 **Altair** leverages the Express server package.
 
-**Altair** project was started on March 25, 2024 by Rene' A. Gonzalez Torres and Lisa Gray-Gonzalez as part of the **Hummingbird** AI project.
+**Altair** project was started on March 25, 2024 by Rene' A. Gonzalez Torres and Lisa Gray-Gonzalez as part of the **Hummingbird Intent Adaptive** AI project.
 
 Source code: https://github.com/renegonzaleztorres/altair-light.git
 
@@ -74,9 +74,15 @@ import WebServer from '../altair/altair.js';
 
 class WebApp extends WebServer{
 
+  constructor() {
+
+    super();
+
+  } // constructor
+
   // Depending on the application, override any methods from WebServer such as routes, additionalRoutes, etc.
 
-} // WebApp*/
+} // WebApp
 
 export default WebApp;
 ```
