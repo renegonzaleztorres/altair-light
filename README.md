@@ -33,10 +33,11 @@ The framework provides a structured foundation with clear conventions, making it
    - Clone your renamed fork
 
 2. **Configure for your project**:
-   - Update `package.json` with your project name, version, and description
+   - Update `package.json` with your project name, version, description, author and license
    - Update `CHANGELOG.md` with your project name and dates
    - Adjust `config/default.json` with your settings
    - Use the existing `kinetic` space or create your own space in `spaces/`
+   - Modify `LICENSE.md` to reflect your project!
    - Modify `README.md` (this file) to reflect your project!
 
 ### Installation
@@ -115,7 +116,7 @@ Environment-specific configs (`development.json`, `production.json`, `staging.js
 
 ## License
 
-[MIT](LICENSE)
+[MIT](./LICENSE)
 
 ## Astronomy
 
