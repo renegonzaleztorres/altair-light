@@ -147,7 +147,7 @@ Lib → ExpressServer → WebServer → WebApp
 
 **`@@VAR_variablename`** - Insert variable (case-insensitive, supports hyphens/underscores)
 - Default: `'UNDEFINED'` if not found
-- Built-in: `year`, `timestamp`, `ts`
+- Built-in: `year`, `timestamp`, `ts`, `currentpath`
 - Custom: from `varDefinitions()` / `additionalVarDefinitions()`
 
 **`@@PARAM_ParameterName`** - Insert parameter (case-sensitive)
@@ -393,6 +393,7 @@ Override `additionalRoutes()` in `web-app/web-app.js`, use `this.app.get()`, `th
 | `@@VAR_ts` | ISO string | Alias |
 | `@@VAR_appname` | App name | `WebApp.additionalVarDefinitions()` |
 | `@@VAR_version` | Version | `WebApp.additionalVarDefinitions()` |
+| `@@VAR_currentpath` | Path (Route) | `WebServer.varDefinitions()` |
 
 ### Settings
 Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocation`, `pagesLocation`, `debug`, `minify`, `appRootPath`, `dirName`, `localPort`, `version`
