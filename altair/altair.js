@@ -155,6 +155,11 @@ class WebServer extends ExpressServer {
   // varDefinitions : define an object containing some standard "var" definitions
   varDefinitions = ({ currentPath, ...otherProps } = {}) => {
 
+    // Normalize 'home' to '/'
+    if (currentPath === 'home') {
+      currentPath = '/';
+    }
+
     return {
       year: new Date().getFullYear(),
       timestamp: this.nowToJSONDateUTC(),
