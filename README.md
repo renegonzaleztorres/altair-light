@@ -77,7 +77,7 @@ To change the port, edit `/config/default.json` and set `localPort` to your desi
 
 ### Environment Variables (.env)
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (copy from `.env.example`):
 
 ```dotenv
 NODE_ENV="development"

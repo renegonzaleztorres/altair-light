@@ -8,7 +8,8 @@ WORKBENCH/
 tests/
 
 # Environment
-.env
+.env*
+!.env.example
 
 # Node artifact files
 node_modules/
