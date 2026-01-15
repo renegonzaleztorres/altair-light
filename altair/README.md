@@ -41,6 +41,9 @@ APP_NAME="altair-light"
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
+DATA_LOCATION="data"
+DATA_FILE="DATA.json"
+ENABLE_DATA_WATCH=true
 MINIFY=true
 DEBUG=true
 ```
@@ -49,8 +52,39 @@ DEBUG=true
 -	ACTIVE_SPACE — Path to the working “space” or directory where app files are "sourced" from.
 -	PUBLIC_LOCATION — Directory under ACTIVE_SPACE that acts as the public root for static assets.
 - PAGES_LOCATION — Subdirectory under ACTIVE_SPACE containing HTML pages that map to routes.
+- DATA_LOCATION — Subdirectory under ACTIVE_SPACE containing DATA files
+- DATA_FILE — JSON file containing data
+- ENABLE_DATA_WATCH — If true, watch for changes and reload DATA_FILE
 -	MINIFY — If true, CSS and JS assets will be minified during build or serve.
 - DEBUG — If true, debug output will be printed to the console.
+
+### DATA.json (Data Cache)
+
+Location: `{ACTIVE_SPACE}/{DATA_LOCATION}/{DATA_FILE}`
+
+Environment-based JSON configuration with hot-reload capability:
+
+```json
+{
+  "default": {
+    "siteName": "My Site",
+    "contact": {"email": "info@example.com"}
+  },
+  "production": {
+    "assetsVersion": "1.0",
+    "contact": {"email": "support@production.com"}
+  }
+}
+```
+
+**Features:**
+- Merges `default` + `NODE_ENV` sections
+- Nested objects flatten to variables: `contact.email` → `@@VAR_contact_email` (lowercase)
+- Hot-reload: file changes auto-update (1s debounce, no server restart)
+- Atomic swap: invalid JSON keeps existing cache (site stays functional)
+- Access: `this.getDataCache()` in code, `@@VAR_*` in templates
+
+**Use for:** Site content, contact info, environment-specific config (not secrets)
 
 ## Usage
 

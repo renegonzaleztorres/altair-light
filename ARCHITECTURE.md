@@ -1,4 +1,4 @@
-# Altair-Light Architecture (v1)
+# Altair-Light Architecture (v1.4)
 
 **Purpose:** LLM agent reference for Altair-Light web framework
 
@@ -10,6 +10,7 @@ Minimalist Node.js web server framework for AI-assisted development:
 - **File-based routing** - HTML files in `pages/` map to routes
 - **Component system** - Reusable HTML/CSS/JS via template tags
 - **Template engine (Tarazed)** - Three tag types: `@@ELEM_`, `@@VAR_`, `@@PARAM_`
+- **Data cache (DATA.json)** - Environment-based config with hot-reload, variables auto-injected
 - **On-demand processing** - No build step; templates processed per request
 - **Space-based** - Multiple projects in isolated `spaces/` directories
 - **~500 lines** of core framework code
@@ -33,6 +34,9 @@ APP_NAME="MyApp"
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
+DATA_LOCATION="data"
+DATA_FILE="DATA.json"
+ENABLE_DATA_WATCH=true
 MINIFY=false
 DEBUG=true
 ```
@@ -75,8 +79,22 @@ DEBUG=true
 @@ELEM_globals/_footer.html
 ```
 
-`spaces/kinetic/css/styles.css`: `body { font-family: system-ui; }`  
+`spaces/kinetic/css/styles.css`: `body { font-family: system-ui; }`
 `spaces/kinetic/js/scripts.js`: `console.log('App loaded');`
+
+`spaces/kinetic/data/DATA.json` (optional):
+```json
+{
+  "default": {
+    "siteName": "MyApp",
+    "tagline": "Built with Altair",
+    "contact": {"email": "hello@example.com"}
+  },
+  "production": {
+    "contact": {"email": "support@example.com"}
+  }
+}
+```
 
 **4. Start:** `npm start` → `http://localhost:3000`
 
@@ -96,7 +114,10 @@ Lib → ExpressServer → WebServer → WebApp
 
 **ExpressServer** (`altair/express-server.js`): Express setup
 - `this.app` - Express instance
-- `start()` - Setup CORS, static files, JSON parser, routes, listen
+- `this.dataCache` - In-memory cache from DATA.json (access via `getDataCache()`)
+- `start()` - Loads DATA.json, setup CORS, static files, JSON parser, routes, listen
+- `loadDataFile()` - Loads and merges DATA.json (environment-based)
+- `getDataCache()` - Returns dataCache object
 - `redirects()`, `serverError()`
 
 **WebServer** (`altair/altair.js`): Routing & rendering
@@ -106,7 +127,7 @@ Lib → ExpressServer → WebServer → WebApp
 - `renderCSS(p, res)` - Read CSS, process tags, minify with CleanCSS
 - `renderJS(p, res)` - Read JS, process tags, minify with Terser
 - `pageNameValidation(p)` - Blocks files starting with `_`
-- `varDefinitions()` - Returns {year, timestamp, ts} + custom vars
+- `varDefinitions()` - Returns {year, timestamp, ts, currentpath} + additionalVarDefinitions() + flattened DATA.json vars
 - `additionalVarDefinitions()` - Override for custom variables
 - `additionalRoutes()` - Override for custom routes
 
@@ -172,6 +193,7 @@ spaces/[ACTIVE_SPACE]/
   ├── components/     # Reusable components (prefix with _)
   ├── css/            # styles.css + _styles/ partials
   ├── js/             # scripts.js + _scripts/ partials
+  ├── data/           # DATA.json (environment-based config, hot-reload)
   ├── public/         # Static assets (served directly)
   └── templates/      # Optional page templates
 ```
@@ -191,6 +213,53 @@ spaces/[ACTIVE_SPACE]/
 
 ## Configuration
 
+### Configuration Types Overview
+
+**Three configuration methods with different use cases:**
+
+| Type | Use For | Restart Required | Security | Hot-Reload |
+|------|---------|------------------|----------|------------|
+| **ENV** (.env) | Infrastructure, secrets, deployment settings | ✅ Yes (server) | ⚠️ Sensitive OK | ❌ No |
+| **Config** (*.json) | App constants, versioning, fixed settings | ✅ Yes (server) | ⚠️ Check into git | ❌ No |
+| **DATA.json** | Site content, editable config, environment overrides | ❌ No (auto-reload) | ❌ No secrets | ✅ Yes (1s) |
+
+**When to use ENV:**
+- Database credentials, API keys, secrets
+- Deployment-specific: `NODE_ENV`, `PORT`, `ACTIVE_SPACE`
+- Infrastructure paths: `PUBLIC_LOCATION`, `DATA_LOCATION`
+- Feature flags: `MINIFY`, `DEBUG`, `ENABLE_DATA_WATCH`
+- **Never:** Site content, frequently-changing values
+- **Restart:** Required (process.env loaded at startup only)
+
+**When to use config/*.json:**
+- Application version numbers
+- Default port, fixed constants
+- Rarely-changing technical settings
+- **Never:** Secrets, deployment-specific values
+- **Restart:** Required (loaded at startup only)
+- **Version control:** Check into git
+
+**When to use DATA.json:**
+- Site name, tagline, contact info, footer text
+- Feature descriptions, pricing, team members
+- Environment-specific overrides (prod vs dev email addresses)
+- Content that non-developers edit
+- Values that change without redeployment
+- **Never:** Secrets, API keys, database credentials
+- **Restart:** NOT required (hot-reload every 1s)
+- **Version control:** Optional (can be deployment-specific)
+
+**Example usage:**
+```
+ENV:         DATABASE_URL="postgresql://..."       (secret, restart required)
+config:      {"version": "1.4.0", "port": 3000}    (constant, restart required)
+DATA.json:   {"siteName": "My Site", ...}          (content, hot-reload)
+```
+
+**Security warning:** DATA.json values become template variables accessible client-side via view source. Never put secrets in DATA.json.
+
+---
+
 ### Environment Variables (.env)
 ```dotenv
 NODE_ENV="development"
@@ -198,6 +267,9 @@ APP_NAME="MyApp"
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
+DATA_LOCATION="data"
+DATA_FILE="DATA.json"
+ENABLE_DATA_WATCH=true
 MINIFY=true
 DEBUG=true
 PORT=3000
@@ -211,8 +283,34 @@ PORT=3000
 
 Environment-specific: `development.json`, `production.json`, `staging.json`
 
+### DATA.json (Data Cache)
+Location: `{activeSpace}/data/DATA.json`
+
+**Structure:**
+```json
+{
+  "default": {
+    "siteName": "MyApp",
+    "contact": {"email": "info@example.com", "phone": "555-1234"}
+  },
+  "production": {
+    "contact": {"email": "support@production.com"}
+  }
+}
+```
+
+**Behavior:**
+- Loaded at startup, merged: `default` + `NODE_ENV` section
+- Nested objects flattened: `contact.email` → `@@VAR_contact_email` (lowercase, underscore-separated)
+- Hot-reload: file changes auto-reload (debounced 1s, retry once on errors)
+- Atomic swap: invalid JSON keeps existing cache (website stays functional)
+- Access in code: `this.getDataCache()` returns original nested structure
+
+**Variable injection:**
+All DATA.json values available as `@@VAR_*` in templates (after flattening).
+
 ### Settings Object
-Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocation`, `pagesLocation`, `debug`, `minify`, `appRootPath`, `dirName`, `localPort`, `version`
+Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocation`, `pagesLocation`, `dataLocation`, `dataFile`, `enableDataWatch`, `debug`, `minify`, `appRootPath`, `dirName`, `localPort`, `version`
 
 ---
 
@@ -284,6 +382,26 @@ Usage: `@@ELEM_components/callout/_callout.html;{"Type":"success","Title":"Done"
 @@ELEM_components/callout/_callout.js
 ```
 
+### Pattern 4: DATA.json Variables
+`data/DATA.json`:
+```json
+{
+  "default": {
+    "siteName": "My Site",
+    "footer": {"copyright": "2026 MyCompany", "link": "/about"}
+  },
+  "production": {
+    "siteName": "My Site (Production)"
+  }
+}
+```
+
+Usage in templates:
+```html
+<h1>@@VAR_sitename</h1>
+<footer>@@VAR_footer_copyright | <a href="@@VAR_footer_link">About</a></footer>
+```
+
 ---
 
 ## Common Patterns
@@ -345,6 +463,14 @@ Override `additionalRoutes()` in `web-app/web-app.js`, use `this.app.get()`, `th
 2. **JS:** Include `_app.js` first, then component JS files
 3. Include via `@@ELEM_` tags in main `css/styles.css` or `js/scripts.js`
 
+**Task 6: Add Data Variables (DATA.json)**
+1. Create/edit `{activeSpace}/data/DATA.json`
+2. Structure: `{"default": {...}, "production": {...}}`
+3. Nested objects auto-flatten: `contact: {email: "..."}` → `@@VAR_contact_email`
+4. Arrays convert to CSV: `["a","b"]` → `"a, b"`
+5. Keys forced lowercase in variables
+6. Hot-reload enabled by default (file changes auto-update)
+
 ---
 
 ## Troubleshooting
@@ -375,6 +501,7 @@ Override `additionalRoutes()` in `web-app/web-app.js`, use `this.app.get()`, `th
 | `spaces/{name}/pages/` | HTML pages |
 | `spaces/{name}/globals/` | Shared fragments |
 | `spaces/{name}/components/` | Components |
+| `spaces/{name}/data/DATA.json` | Data cache (hot-reload) |
 | `spaces/{name}/public/` | Static assets |
 
 ### Template Tags
@@ -388,15 +515,16 @@ Override `additionalRoutes()` in `web-app/web-app.js`, use `this.app.get()`, `th
 ### Built-in Variables
 | Variable | Value | Source |
 |----------|-------|--------|
-| `@@VAR_year` | `2025` | `Date.getFullYear()` |
+| `@@VAR_year` | `2026` | `Date.getFullYear()` |
 | `@@VAR_timestamp` | ISO string | `nowToJSONDateUTC()` |
 | `@@VAR_ts` | ISO string | Alias |
 | `@@VAR_appname` | App name | `WebApp.additionalVarDefinitions()` |
 | `@@VAR_version` | Version | `WebApp.additionalVarDefinitions()` |
 | `@@VAR_currentpath` | Path (Route) | `WebServer.varDefinitions()` |
+| `@@VAR_*` | Any value | DATA.json (flattened, e.g., `contact_email`) |
 
 ### Settings
-Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocation`, `pagesLocation`, `debug`, `minify`, `appRootPath`, `dirName`, `localPort`, `version`
+Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocation`, `pagesLocation`, `dataLocation`, `dataFile`, `enableDataWatch`, `debug`, `minify`, `appRootPath`, `dirName`, `localPort`, `version`
 
 ---
 
@@ -405,8 +533,9 @@ Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocat
 **Key Points:**
 - File-based routing (no config)
 - Component system via `@@ELEM_` tags
-- Variables via `@@VAR_` tags
+- Variables via `@@VAR_` tags (includes DATA.json auto-injection)
 - Parameters via `@@PARAM_` tags
+- DATA.json: environment-based config with hot-reload, nested objects flattened
 - Processing order: Elements → Parameters → Variables
 - Private files use `_` prefix (blocked from HTTP)
 - Override methods in `WebApp` for customization
@@ -415,5 +544,7 @@ Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocat
 **For LLM Agents:**
 - Understand hierarchy: Lib → ExpressServer → WebServer → WebApp
 - Know three tag types and processing order
+- Use DATA.json for site-wide config/content (auto-injected as variables)
+- Nested DATA.json objects flatten: `contact.email` → `@@VAR_contact_email`
 - Follow naming conventions (`_` prefix for private)
 - Use extension points for customization

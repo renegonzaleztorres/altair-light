@@ -1,0 +1,11 @@
+{
+  "default": {
+  },
+  "development": {
+  },
+  "staging": {
+  },
+  "production": {
+    "assetsVersion": "1.0"
+  }
+}

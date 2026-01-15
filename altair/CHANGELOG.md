@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.4.0] - 2026-01-14
+
+### Added
+- Data cache with hot-reload support via DATA.json (scoped to active space)
+- Support for nested objects in DATA.json with automatic flattening to underscore-separated lowercase variables
+- Environment-based configuration in DATA.json with default and NODE_ENV-specific overrides
+- Atomic swap for data reload: keeps existing cache on parse errors (preserves website functionality)
+- Debouncing for hot-reload: prevents multiple reloads during rapid edits (1s delay)
+- Retry logic for mid-write scenarios: retries once after 500ms if file read fails (handles editor atomic saves)
+- Graceful shutdown handlers for SIGTERM and SIGINT (proper resource cleanup on exit)
+
+### Changed
+- Disabled X-Powered-By header exposure
+
+---
+
 ## [1.3.1] - 2026-01-05
 
 ### Fixed

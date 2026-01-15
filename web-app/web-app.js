@@ -28,6 +28,7 @@ class WebApp extends WebServer{
     v.version = this.settings.version;
     v.ver = this.settings.version;
     v.appname = this.settings.appName;
+    v.assetsversion = this.nowToJSONDateUTC();
     
     return v;
 

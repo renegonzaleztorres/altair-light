@@ -160,12 +160,16 @@ class WebServer extends ExpressServer {
       currentPath = '/';
     }
 
+    // Flatten dataCache for use in template variables (original structure preserved in memory)
+    const flattenedDataCache = this.flattenObject(this.getDataCache());
+
     return {
       year: new Date().getFullYear(),
       timestamp: this.nowToJSONDateUTC(),
       ts: this.nowToJSONDateUTC(),
       currentpath: currentPath,
-      ...this.additionalVarDefinitions()
+      ...this.additionalVarDefinitions(),
+      ...flattenedDataCache
     };
 
   } // varDefinitions

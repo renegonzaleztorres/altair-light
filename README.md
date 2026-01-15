@@ -85,6 +85,9 @@ APP_NAME="<PROJECT_NAME>"
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
+DATA_LOCATION="data"
+DATA_FILE="DATA.json"
+ENABLE_DATA_WATCH=true
 MINIFY=true
 DEBUG=true
 ```
@@ -94,6 +97,9 @@ DEBUG=true
 - `ACTIVE_SPACE` — Path to the working "space" or directory where app files are sourced from
 - `PUBLIC_LOCATION` — Directory under ACTIVE_SPACE that acts as the public root for static assets
 - `PAGES_LOCATION` — Subdirectory under ACTIVE_SPACE containing HTML pages that map to routes
+- `DATA_LOCATION` — Subdirectory under ACTIVE_SPACE containing DATA files
+- `DATA_FILE` — JSON file containing data
+- `ENABLE_DATA_WATCH` — If `true`, watch for changes and reload DATA_FILE
 - `MINIFY` — If `true`, CSS and JS assets will be minified during build or serve
 - `DEBUG` — If `true`, debug output will be printed to the console
 
@@ -109,6 +115,23 @@ Edit `/config/default.json` to change the port and/or version number. At minimum
 ```
 
 Environment-specific configs (`development.json`, `production.json`, `staging.json`) can override or extend these settings.
+
+### data/DATA.json (Data Cache)
+
+Environment-based JSON configuration with hot-reload capability:
+
+```json
+{
+  "default": {
+    "siteName": "My Site",
+    "contact": {"email": "info@example.com"}
+  },
+  "production": {
+    "assetsVersion": "1.0",
+    "contact": {"email": "support@production.com"}
+  }
+}
+```
 
 ## Documentation
 
