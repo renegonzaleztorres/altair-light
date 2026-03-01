@@ -21,4 +21,11 @@ const __ENABLE_DATA_WATCH = process.env.ENABLE_DATA_WATCH !== 'false';
 const __MINIFY = process.env.MINIFY === 'true';
 const __DEBUG = process.env.DEBUG === 'true';
 
-export { __dirName, __appRootPath, __version, __localPort, __NODE_ENV, __APP_NAME, __ACTIVE_SPACE, __PUBLIC_LOCATION, __PAGES_LOCATION, __DATA_LOCATION, __DATA_FILE, __ENABLE_DATA_WATCH, __MINIFY, __DEBUG };
+// WebSocket Configuration
+const __ENABLE_WEBSOCKET = process.env.ENABLE_WEBSOCKET === 'true';
+const __WEBSOCKET_PATH = process.env.WEBSOCKET_PATH || '/ws';
+const __WEBSOCKET_HEARTBEAT_MS = parseInt(process.env.WEBSOCKET_HEARTBEAT_MS) || 30000;
+const __WEBSOCKET_SESSION_TTL_SECS = parseInt(process.env.WEBSOCKET_SESSION_TTL_SECS) || 3600;
+const __WEBSOCKET_ALLOWED_ORIGINS = process.env.WEBSOCKET_ALLOWED_ORIGINS || '';
+
+export { __dirName, __appRootPath, __version, __localPort, __NODE_ENV, __APP_NAME, __ACTIVE_SPACE, __PUBLIC_LOCATION, __PAGES_LOCATION, __DATA_LOCATION, __DATA_FILE, __ENABLE_DATA_WATCH, __MINIFY, __DEBUG, __ENABLE_WEBSOCKET, __WEBSOCKET_PATH, __WEBSOCKET_HEARTBEAT_MS, __WEBSOCKET_SESSION_TTL_SECS, __WEBSOCKET_ALLOWED_ORIGINS };

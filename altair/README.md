@@ -6,6 +6,8 @@ A super minimalist and efficient web server module.
 
 **Altair** leverages the Express server package.
 
+**Altair** includes optional WebSocket support via the `ws` package for real-time bidirectional communication.
+
 **Altair** project was started on March 25, 2024 by Rene' A. Gonzalez Torres and Lisa Gray-Gonzalez as part of the **Hummingbird Intent Adaptive** AI project.
 
 Source code: https://github.com/renegonzaleztorres/altair-light.git
@@ -46,6 +48,11 @@ DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
 MINIFY=true
 DEBUG=true
+ENABLE_WEBSOCKET=false
+WEBSOCKET_PATH="/ws"
+WEBSOCKET_HEARTBEAT_MS=30000
+WEBSOCKET_SESSION_TTL_SECS=3600
+WEBSOCKET_ALLOWED_ORIGINS=""
 ```
 
 -	APP_NAME — Your project’s application name.
@@ -57,6 +64,11 @@ DEBUG=true
 - ENABLE_DATA_WATCH — If true, watch for changes and reload DATA_FILE
 -	MINIFY — If true, CSS and JS assets will be minified during build or serve.
 - DEBUG — If true, debug output will be printed to the console.
+- ENABLE_WEBSOCKET — If true, start WebSocket server on the HTTP server.
+- WEBSOCKET_PATH — WebSocket endpoint path (default: `/ws`).
+- WEBSOCKET_HEARTBEAT_MS — Ping interval in ms for dead connection detection (default: `30000`).
+- WEBSOCKET_SESSION_TTL_SECS — TTL in seconds for disconnected sessions (default: `3600`).
+- WEBSOCKET_ALLOWED_ORIGINS — Origin policy: `""` reject all (default), `"*"` allow all, `"same-origin"`, or comma-separated whitelist.
 
 ### DATA.json (Data Cache)
 

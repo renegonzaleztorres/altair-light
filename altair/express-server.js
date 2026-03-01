@@ -3,6 +3,7 @@
  */
 
 import { express, cors, createServer, path, fs, fsSync } from './dependencies.js'
+import { WSServer } from './websocket-server.js';
 import Lib from './lib.js';
 
 class ExpressServer extends Lib {
@@ -12,6 +13,7 @@ class ExpressServer extends Lib {
     super();
     this.app = express();
     this.server = null;
+    this.wsServer = null;
     
     // Construct public path (scoped to active space)
     this.publicPath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.publicLocation);
@@ -186,6 +188,18 @@ class ExpressServer extends Lib {
     this.app.use(express.json());
     this.server = createServer(this.app);
 
+    // Initialize WebSocket server if enabled
+    if (this.settings.enableWebSocket) {
+      this.wsServer = new WSServer(this.server, {
+        path: this.settings.webSocketPath,
+        heartbeatInterval: this.settings.webSocketHeartbeatMs,
+        sessionTTL: this.settings.webSocketSessionTtlSecs * 1000,
+        allowedOrigins: this.settings.webSocketAllowedOrigins,
+        onMessage: (sessionId, message, ws) => this.onWsMessage(sessionId, message, ws)
+      });
+      this.readout(`WebSocket server initialized on ${this.settings.webSocketPath}`, 'WebSocket');
+    }
+
     // Routes
     this.routes();
 
@@ -203,8 +217,16 @@ class ExpressServer extends Lib {
 
     // Register cleanup handlers for graceful shutdown
     const shutdown = () => {
+      this.readout('Shutting down...', 'Shutdown');
       this.stopWatchingDataFile();
-      process.exit(0);
+      if (this.wsServer) {
+        this.wsServer.close();
+        this.readout('WebSocket server closed', 'Shutdown');
+      }
+      this.server.close(() => {
+        this.readout('HTTP server closed', 'Shutdown');
+        process.exit(0);
+      });
     };
 
     process.on('SIGTERM', shutdown);
@@ -220,6 +242,14 @@ class ExpressServer extends Lib {
     return;
 
   } // routes
+
+  // onWsMessage : WebSocket message handler (override as needed)
+  // Called for all messages except built-in types (init, ping)
+  onWsMessage(sessionId, message, ws) {
+
+    return;
+
+  } // onWsMessage
 
   // redirects : response
   redirects(statusCode, path, res) {

@@ -1,4 +1,4 @@
-# Altair-Light Architecture (v1.4)
+# Altair-Light Architecture (v1.5)
 
 **Purpose:** LLM agent reference for Altair-Light web framework
 
@@ -9,7 +9,7 @@
 Minimalist Node.js web server framework for AI-assisted development:
 - **File-based routing** - HTML files in `pages/` map to routes
 - **Component system** - Reusable HTML/CSS/JS via template tags
-- **Template engine (Tarazed)** - Three tag types: `@@ELEM_`, `@@VAR_`, `@@PARAM_`
+- **Template engine (Tarazed)** - Four tag types: `@@ELEM_`, `@@PARAM_`, `@@DATA_`, `@@VAR_`
 - **Data cache (DATA.json)** - Environment-based config with hot-reload, variables auto-injected
 - **On-demand processing** - No build step; templates processed per request
 - **Space-based** - Multiple projects in isolated `spaces/` directories
@@ -123,7 +123,7 @@ Lib → ExpressServer → WebServer → WebApp
 **WebServer** (`altair/altair.js`): Routing & rendering
 - `this.tarazed` - Template engine instance
 - `routes()` - `GET /` → home, `GET *.css` → CSS, `GET *.js` → JS, `GET *` → HTML
-- `renderHTML(p, res)` - Read page, process `@@ELEM_` (recursive), `@@VAR_`, minify comments
+- `renderHTML(p, res)` - Read page, process `@@ELEM_` (recursive), `@@DATA_`, `@@VAR_`, minify comments
 - `renderCSS(p, res)` - Read CSS, process tags, minify with CleanCSS
 - `renderJS(p, res)` - Read JS, process tags, minify with Terser
 - `pageNameValidation(p)` - Blocks files starting with `_`
@@ -137,9 +137,10 @@ Lib → ExpressServer → WebServer → WebApp
 
 **Tarazed** (`altair/tarazed.js`): Template engine
 - `replaceElemTags(s)` - Process `@@ELEM_path;{"param":"value"}` (async, recursive)
+- `replaceDataTags(s)` - Process `@@DATA_path/file.json#key.path?modifiers` (async)
 - `replaceVarTags(s, vD)` - Process `@@VAR_name` (case-insensitive)
 - `replaceParamTags(s, params)` - Process `@@PARAM_Name` (case-sensitive)
-- **Processing order:** 1) Elements (recursive), 2) Parameters, 3) Variables
+- **Processing order:** 1) Elements (recursive, with params), 2) Data tags, 3) Variables
 
 ---
 
@@ -147,7 +148,7 @@ Lib → ExpressServer → WebServer → WebApp
 
 **Startup:** `index.js` → `main.js::main()` → `new WebApp()` → `wa.start()`
 
-**HTML Request:** Route → `renderHTML()` → Validate → Read file → `replaceElemTags()` (recursive) → `replaceVarTags()` → Minify comments → Send
+**HTML Request:** Route → `renderHTML()` → Validate → Read file → `replaceElemTags()` (recursive) → `replaceDataTags()` → `replaceVarTags()` → Minify comments → Send
 
 **CSS Request:** Route → `renderCSS()` → Validate → Read → Process tags → Minify (CleanCSS) → Send
 
@@ -176,10 +177,30 @@ Lib → ExpressServer → WebServer → WebApp
 - Default: empty string if not found
 - Special: `FORMAT_PARAMS_FOR_JS: true` → `{ParamName}` for template literals
 
+**`@@DATA_path/file.json`** - Load JSON from file (path relative to `activeSpace`)
+- Optional selector: `@@DATA_path/file.json#key.path[0]`
+- Optional modifiers (query style): `?ci=true&raw=true&default=...&behavior=...`
+- Root retrieval (full document): omit selector (no `#`)
+- Key matching default: case-sensitive (`ci=true` for case-insensitive lookup)
+- Path traversal supports dot + array index: `team.members[0].name`
+- On missing/invalid lookup: controlled by `behavior` (`strict|empty|null|default|pass`)
+- `raw=true`: outputs JSON text with `JSON.stringify(...)` (recommended for `<script>` embedding)
+- Security: JSON path must resolve inside the active space and use `.json` extension
+
 ### Processing Order
 1. `@@ELEM_` tags (recursive, depth-first)
-2. `@@PARAM_` tags (within included elements)
-3. `@@VAR_` tags (last step)
+2. `@@PARAM_` tags (within each included element)
+3. `@@DATA_` tags (after include expansion)
+4. `@@VAR_` tags (last step)
+
+### `@@DATA_` Quick Rules (For AI Agents)
+- Use `#` to target a key path: `@@DATA_data/_about-content.json#bio`
+- Use no selector for full object: `@@DATA_data/_about-content.json?raw=true`
+- Use `raw=true` when injecting objects/arrays into JavaScript
+- Prefer case-sensitive keys; only use `ci=true` when schema casing is inconsistent
+- Do not expect `@@DATA_` output to trigger another `@@ELEM_` expansion pass
+- When passing component params, map keys explicitly in ELEM JSON:
+  `@@ELEM_components/bio/_bio.html;{"name":"@@DATA_data/_about-content.json#name"}`
 
 ---
 
@@ -402,6 +423,129 @@ Usage in templates:
 <footer>@@VAR_footer_copyright | <a href="@@VAR_footer_link">About</a></footer>
 ```
 
+### Pattern 5: JSON File Data Tags (`@@DATA_`)
+Component: `components/bio/_bio.html`:
+```html
+<div class="c-bio">
+  <h2>@@PARAM_name</h2>
+  <p>@@PARAM_bio</p>
+  <img src="@@PARAM_photo" alt="@@PARAM_name" />
+</div>
+```
+
+Page usage:
+```html
+<main>
+  @@ELEM_components/bio/_bio.html;{"name":"@@DATA_data/_about-content.json#name","bio":"@@DATA_data/_about-content.json#bio","photo":"@@DATA_data/_about-content.json#photo"}
+</main>
+```
+
+Root object in script:
+```html
+<script>
+  const aboutContent = @@DATA_data/_about-content.json?raw=true;
+</script>
+```
+
+---
+
+## WebSocket Server
+
+Altair includes an optional WebSocket server (`altair/websocket-server.js`) for real-time bidirectional communication, built on the `ws` package. It is disabled by default.
+
+### Enabling WebSockets
+
+Add to `.env`:
+```dotenv
+ENABLE_WEBSOCKET=true
+WEBSOCKET_ALLOWED_ORIGINS="same-origin"
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_WEBSOCKET` | `false` | Enable WebSocket server |
+| `WEBSOCKET_PATH` | `/ws` | Server endpoint path |
+| `WEBSOCKET_HEARTBEAT_MS` | `30000` | Ping interval (ms) for dead connection detection |
+| `WEBSOCKET_SESSION_TTL_SECS` | `3600` | TTL for disconnected sessions (seconds) |
+| `WEBSOCKET_ALLOWED_ORIGINS` | `""` (reject all) | Origin policy (see below) |
+
+**Origin policies:** `""` reject all, `"*"` allow all (dev only), `"same-origin"`, or comma-separated whitelist (e.g. `"https://example.com,https://app.example.com"`).
+
+### Architecture
+
+When enabled, `ExpressServer.start()` creates a `WSServer` instance attached to the HTTP server. The WebSocket server is available as `this.wsServer` in any subclass.
+
+**Session model:** Clients send an `init` message with a `session_id`. The server maps sessions to WebSocket connections, enabling message queuing for temporarily disconnected clients and session reconnection.
+
+### Handling Messages
+
+Override `onWsMessage()` in `web-app/web-app.js`:
+```javascript
+onWsMessage(sessionId, message, ws) {
+  if (message.type === 'chat') {
+    // Echo back to sender
+    this.wsServer.sendToSession(sessionId, { type: 'chat', text: message.text });
+  }
+}
+```
+
+This handler receives all messages except built-in types (`init`, `ping`).
+
+### Client Connection
+
+```javascript
+const ws = new WebSocket('ws://localhost:3000/ws');
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: 'init', session_id: 'user-abc123' }));
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === 'connected') {
+    console.log('Session established:', msg.session_id);
+  }
+};
+```
+
+**Session ID rules:** 3-64 characters, must start with alphanumeric, may contain alphanumeric, underscore, or hyphen.
+
+### Server API (`this.wsServer`)
+
+| Method | Description |
+|--------|-------------|
+| `sendToSession(sessionId, data)` | Send to session (queues if disconnected) |
+| `broadcast(data)` | Send to all connected clients |
+| `isConnected(sessionId)` | Check if session has active connection |
+| `getConnectedSessions()` | List all connected session IDs |
+| `getSession(sessionId)` | Get session object |
+| `getStats()` | Connection stats (total, connected, queued, near rate limit) |
+
+### Built-in Security
+
+- **Origin validation** — configurable per environment
+- **Rate limiting** — 30 messages per 10-second window per session
+- **Message size limit** — 64KB max payload
+- **Queue size limit** — 100 queued messages per session (FIFO eviction)
+- **Session TTL** — expired disconnected sessions auto-cleaned (default 1 hour)
+- **Graceful shutdown** — WebSocket server closed on SIGTERM/SIGINT
+
+### Protocol Messages
+
+**Client → Server:**
+| Type | Payload | Purpose |
+|------|---------|---------|
+| `init` | `{ type: "init", session_id: "..." }` | Register session |
+| `ping` | `{ type: "ping" }` | Application-level keepalive |
+| Custom | `{ type: "yourtype", ... }` | Routed to `onWsMessage()` |
+
+**Server → Client:**
+| Type | Payload | Purpose |
+|------|---------|---------|
+| `connected` | `{ type: "connected", session_id: "..." }` | Session confirmed |
+| `pong` | `{ type: "pong" }` | Ping reply |
+| `error` | `{ type: "error", error: "..." }` | Validation/rate limit error |
+
 ---
 
 ## Common Patterns
@@ -471,6 +615,14 @@ Override `additionalRoutes()` in `web-app/web-app.js`, use `this.app.get()`, `th
 5. Keys forced lowercase in variables
 6. Hot-reload enabled by default (file changes auto-update)
 
+**Task 7: Use JSON File Data Tags (`@@DATA_`)**
+1. Add JSON content file in `{activeSpace}/data/` (or another folder under active space)
+2. For single values, use selector paths: `@@DATA_data/file.json#section.title`
+3. For arrays, use index selectors: `@@DATA_data/file.json#items[0].name`
+4. For full object in JS, use: `@@DATA_data/file.json?raw=true`
+5. In ELEM params, pass `@@DATA_` tokens as string values; they resolve after ELEM expansion
+6. Use `behavior=default&default=...` for graceful fallbacks on missing keys
+
 ---
 
 ## Troubleshooting
@@ -509,6 +661,7 @@ Override `additionalRoutes()` in `web-app/web-app.js`, use `this.app.get()`, `th
 |-----|--------|------|
 | Element | `@@ELEM_path/file.html` | No |
 | Element+Params | `@@ELEM_path/file.html;{"K":"v"}` | No/Yes |
+| Data | `@@DATA_path/file.json#key.path?mods` | Selector Yes (`ci=true` optional) |
 | Variable | `@@VAR_name` | No |
 | Parameter | `@@PARAM_Name` | Yes |
 
@@ -533,18 +686,21 @@ Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocat
 **Key Points:**
 - File-based routing (no config)
 - Component system via `@@ELEM_` tags
+- File-backed JSON selectors via `@@DATA_` tags
 - Variables via `@@VAR_` tags (includes DATA.json auto-injection)
 - Parameters via `@@PARAM_` tags
 - DATA.json: environment-based config with hot-reload, nested objects flattened
-- Processing order: Elements → Parameters → Variables
+- Processing order: Elements/Parameters → Data tags → Variables
 - Private files use `_` prefix (blocked from HTTP)
 - Override methods in `WebApp` for customization
 - Templates processed on each request
 
 **For LLM Agents:**
 - Understand hierarchy: Lib → ExpressServer → WebServer → WebApp
-- Know three tag types and processing order
+- Know four tag types and processing order
 - Use DATA.json for site-wide config/content (auto-injected as variables)
 - Nested DATA.json objects flatten: `contact.email` → `@@VAR_contact_email`
+- Use `@@DATA_` for direct JSON file lookups when component/page content needs non-flattened structures
+- For object/array injection in JS, use `?raw=true`
 - Follow naming conventions (`_` prefix for private)
 - Use extension points for customization

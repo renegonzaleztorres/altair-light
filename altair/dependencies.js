@@ -13,5 +13,6 @@ import dotenv from 'dotenv';
 import config from 'config';
 import { minify } from 'terser';
 import CleanCSS from 'clean-css';
+import { WebSocketServer } from 'ws';
 
-export { express, cors, createServer, fs, fsSync, path, fileURLToPath, dotenv, config, minify, CleanCSS };
+export { express, cors, createServer, fs, fsSync, path, fileURLToPath, dotenv, config, minify, CleanCSS, WebSocketServer };

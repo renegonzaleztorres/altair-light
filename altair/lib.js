@@ -3,13 +3,13 @@
  */
 
 import * as __CONSTANTS from './constants.js';
-const { __APP_NAME: appName, __NODE_ENV: nodeEnv, __ACTIVE_SPACE: activeSpace, __PUBLIC_LOCATION: publicLocation, __PAGES_LOCATION: pagesLocation, __DATA_LOCATION: dataLocation, __DATA_FILE: dataFile, __ENABLE_DATA_WATCH: enableDataWatch, __MINIFY: minify, __DEBUG: debug, __appRootPath: appRootPath, __dirName: dirName, __localPort: localPort, __version: version } = __CONSTANTS;
+const { __APP_NAME: appName, __NODE_ENV: nodeEnv, __ACTIVE_SPACE: activeSpace, __PUBLIC_LOCATION: publicLocation, __PAGES_LOCATION: pagesLocation, __DATA_LOCATION: dataLocation, __DATA_FILE: dataFile, __ENABLE_DATA_WATCH: enableDataWatch, __MINIFY: minify, __DEBUG: debug, __appRootPath: appRootPath, __dirName: dirName, __localPort: localPort, __version: version, __ENABLE_WEBSOCKET: enableWebSocket, __WEBSOCKET_PATH: webSocketPath, __WEBSOCKET_HEARTBEAT_MS: webSocketHeartbeatMs, __WEBSOCKET_SESSION_TTL_SECS: webSocketSessionTtlSecs, __WEBSOCKET_ALLOWED_ORIGINS: webSocketAllowedOrigins } = __CONSTANTS;
 
 class Lib {
 
   constructor() {
 
-    this.settings = { appName, nodeEnv, activeSpace, publicLocation, pagesLocation, dataLocation, dataFile, enableDataWatch, debug, minify, appRootPath, dirName, localPort, version };
+    this.settings = { appName, nodeEnv, activeSpace, publicLocation, pagesLocation, dataLocation, dataFile, enableDataWatch, debug, minify, appRootPath, dirName, localPort, version, enableWebSocket, webSocketPath, webSocketHeartbeatMs, webSocketSessionTtlSecs, webSocketAllowedOrigins };
 
   } // constructor
 

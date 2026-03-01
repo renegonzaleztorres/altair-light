@@ -14,7 +14,7 @@ import path from 'path';
 
 class Tarazed {
   
-  constructor({ elemTagPrefix = '@@ELEM_', varTagPrefix = '@@VAR_', paramTagPrefix = '@@PARAM_', appPath = '', readoutCallback = null } = {}) {
+  constructor({ elemTagPrefix = '@@ELEM_', varTagPrefix = '@@VAR_', paramTagPrefix = '@@PARAM_', dataTagPrefix = '@@DATA_', appPath = '', readoutCallback = null } = {}) {
 
     // Error if appPath is missing or blank
     if (typeof appPath !== 'string' || appPath.trim() === '') {
@@ -24,7 +24,9 @@ class Tarazed {
     this.elemTagPrefix = elemTagPrefix;
     this.varTagPrefix = varTagPrefix;
     this.paramTagPrefix = paramTagPrefix;
+    this.dataTagPrefix = dataTagPrefix;
     this.appPath = appPath;
+    this.readoutCallback = readoutCallback;
 
   }
 
@@ -73,6 +75,242 @@ class Tarazed {
     return strng;
 
   } // replaceElemTags
+
+  // parseDataTag : parse @@DATA_ token into parts
+  // Supported patterns:
+  // - @@DATA_data/file.json
+  // - @@DATA_data/file.json#path.to.value
+  // - @@DATA_data/file.json#path.to.value?ci=true&raw=true&default=foo&behavior=default
+  parseDataTag = (tag) => {
+    const token = String(tag ?? '');
+    const body = token.replace(new RegExp(`^${this.dataTagPrefix}`, 'i'), '');
+    if (body.trim() === '') {
+      return null;
+    }
+
+    const hashIndex = body.indexOf('#');
+    const queryIndex = body.indexOf('?');
+    const hasSelector = hashIndex >= 0 && (queryIndex < 0 || hashIndex < queryIndex);
+
+    let filePath = body;
+    let selector = '';
+    let query = '';
+
+    if (hasSelector) {
+      filePath = body.slice(0, hashIndex);
+      const selectorAndQuery = body.slice(hashIndex + 1);
+      const selectorQueryIndex = selectorAndQuery.indexOf('?');
+      if (selectorQueryIndex >= 0) {
+        selector = selectorAndQuery.slice(0, selectorQueryIndex);
+        query = selectorAndQuery.slice(selectorQueryIndex + 1);
+      } else {
+        selector = selectorAndQuery;
+      }
+    } else if (queryIndex >= 0) {
+      filePath = body.slice(0, queryIndex);
+      query = body.slice(queryIndex + 1);
+    }
+
+    return {
+      filePath: filePath.trim(),
+      selector: selector.trim(),
+      query: query.trim(),
+    };
+  } // parseDataTag
+
+  // parseDataModifiers : parse query-string modifiers
+  parseDataModifiers = (query) => {
+    const params = new URLSearchParams(query || '');
+    const getBoolean = (k, d = false) => {
+      const v = params.get(k);
+      if (v === null) {
+        return d;
+      }
+      return String(v).toLowerCase() === 'true';
+    };
+
+    const behavior = String(params.get('behavior') || 'strict').toLowerCase();
+    return {
+      ci: getBoolean('ci', false),
+      raw: getBoolean('raw', false),
+      defaultValue: params.get('default'),
+      behavior,
+    };
+  } // parseDataModifiers
+
+  // normalizeDataFilePath : normalize, validate and resolve data file path
+  normalizeDataFilePath = (rawFilePath) => {
+    const relativePath = String(rawFilePath || '').replace(/\\/g, '/').trim();
+    if (relativePath === '' || path.isAbsolute(relativePath)) {
+      return null;
+    }
+
+    const resolvedPath = path.resolve(this.appPath, relativePath);
+    const appRoot = path.resolve(this.appPath) + path.sep;
+    if (!(resolvedPath + path.sep).startsWith(appRoot) && resolvedPath !== path.resolve(this.appPath)) {
+      return null;
+    }
+
+    if (path.extname(resolvedPath).toLowerCase() !== '.json') {
+      return null;
+    }
+
+    return resolvedPath;
+  } // normalizeDataFilePath
+
+  // getByPath : retrieve nested object value from dot/bracket path
+  getByPath = (obj, selector, { ci = false } = {}) => {
+    if (selector === '' || selector === '$') {
+      return { found: true, value: obj };
+    }
+
+    const parts = [];
+    const regex = /([^[.\]]+)|\[(\d+)\]/g;
+    let match;
+    while ((match = regex.exec(selector)) !== null) {
+      if (match[1] !== undefined) {
+        parts.push({ type: 'key', value: match[1] });
+      } else if (match[2] !== undefined) {
+        parts.push({ type: 'index', value: Number(match[2]) });
+      }
+    }
+
+    if (parts.length === 0) {
+      return { found: false, value: undefined };
+    }
+
+    let current = obj;
+    for (const part of parts) {
+      if (part.type === 'index') {
+        if (!Array.isArray(current) || part.value < 0 || part.value >= current.length) {
+          return { found: false, value: undefined };
+        }
+        current = current[part.value];
+        continue;
+      }
+
+      if (current === null || typeof current !== 'object' || Array.isArray(current)) {
+        return { found: false, value: undefined };
+      }
+
+      if (!ci) {
+        if (!Object.prototype.hasOwnProperty.call(current, part.value)) {
+          return { found: false, value: undefined };
+        }
+        current = current[part.value];
+        continue;
+      }
+
+      const lowerKey = String(part.value).toLowerCase();
+      const matchedKey = Object.keys(current).find((k) => k.toLowerCase() === lowerKey);
+      if (matchedKey === undefined) {
+        return { found: false, value: undefined };
+      }
+      current = current[matchedKey];
+    }
+
+    return { found: true, value: current };
+  } // getByPath
+
+  // applyDataFallback : resolve missing/invalid lookups according to behavior mode
+  applyDataFallback = ({ behavior, defaultValue, token }) => {
+    switch (behavior) {
+      case 'empty':
+        return '';
+      case 'null':
+        return 'null';
+      case 'default':
+        return defaultValue ?? 'UNDEFINED';
+      case 'pass':
+        return token;
+      case 'strict':
+      default:
+        return 'UNDEFINED';
+    }
+  } // applyDataFallback
+
+  // resolveDataValue : shape final value for replacement
+  resolveDataValue = ({ value, raw, behavior, defaultValue, token }) => {
+    if (raw) {
+      try {
+        return JSON.stringify(value);
+      } catch (err) {
+        return this.applyDataFallback({ behavior, defaultValue, token });
+      }
+    }
+
+    if (value !== null && typeof value === 'object') {
+      return this.applyDataFallback({ behavior, defaultValue, token });
+    }
+
+    return value;
+  } // resolveDataValue
+
+  // replaceDataTags : replace @@DATA_ tags with values from JSON files
+  replaceDataTags = async (s) => {
+    if (typeof s !== 'string') { return s; }
+
+    let strng = s;
+    const pattern = new RegExp(`${this.dataTagPrefix}[^\\s"'<>;,)\\}]+`, 'gi');
+    const matches = strng.match(pattern);
+    if (!matches) {
+      return strng;
+    }
+
+    const uniqueMatches = new Set(matches);
+    const fileCache = new Map();
+
+    for (const token of uniqueMatches) {
+      let replacement = 'UNDEFINED';
+
+      try {
+        const parsed = this.parseDataTag(token);
+        if (!parsed || parsed.filePath === '') {
+          replacement = 'UNDEFINED';
+        } else {
+          const modifiers = this.parseDataModifiers(parsed.query);
+          const normalizedPath = this.normalizeDataFilePath(parsed.filePath);
+          if (!normalizedPath) {
+            replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
+          } else {
+            let jsonData;
+            if (fileCache.has(normalizedPath)) {
+              jsonData = fileCache.get(normalizedPath);
+            } else {
+              const fileContents = await fs.readFile(normalizedPath, 'utf8');
+              jsonData = JSON.parse(fileContents);
+              fileCache.set(normalizedPath, jsonData);
+            }
+
+            const lookedUp = this.getByPath(jsonData, parsed.selector, { ci: modifiers.ci });
+            if (!lookedUp.found) {
+              replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
+            } else {
+              replacement = this.resolveDataValue({
+                value: lookedUp.value,
+                raw: modifiers.raw,
+                behavior: modifiers.behavior,
+                defaultValue: modifiers.defaultValue,
+                token
+              });
+            }
+          }
+        }
+      } catch (err) {
+        if (this.readoutCallback !== null) {
+          this.readoutCallback(`Resolving data token ${token} > ${err}`, 'Error');
+        }
+        const parsed = this.parseDataTag(token);
+        const modifiers = this.parseDataModifiers(parsed?.query || '');
+        replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
+      }
+
+      const safeTag = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      strng = strng.replace(new RegExp(safeTag, 'g'), replacement);
+    }
+
+    return strng;
+  } // replaceDataTags
 
   // replaceVarTags : replace variable tags in a string with corresponding static|dynamic values (use any case for the tags but the variables being matched will be in lowercase)
   // Example(s): @@VAR_YEAR @@VAR_Year @@VAR_year @@VAR_Year-Month @@VAR_Year_Month @@VAR_YearMonth

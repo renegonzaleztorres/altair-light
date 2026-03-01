@@ -64,6 +64,7 @@ class WebServer extends ExpressServer {
       let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.pagesLocation, (this.trimSlashes(p) + '.html'));
       let data = await fs.readFile(filePath, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
       data = await this.tarazed.replaceElemTags(data);
+      data = await this.tarazed.replaceDataTags(data);
       data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath: p }));
       if (this.settings.minify) // Remove html remarks, when specified
         data = data.replace(/<!--[\s\S]*?-->/g, '');
@@ -89,6 +90,7 @@ class WebServer extends ExpressServer {
       let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.trimSlashes(p));
       let data = await fs.readFile(filePath, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
       data = await this.tarazed.replaceElemTags(data);
+      data = await this.tarazed.replaceDataTags(data);
       data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath: p }));
       if (this.settings.minify) { // Minify CSS, when specified
         let minified = new CleanCSS().minify(data);
@@ -118,6 +120,7 @@ class WebServer extends ExpressServer {
       let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.trimSlashes(p));
       let data = await fs.readFile(filePath, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
       data = await this.tarazed.replaceElemTags(data);
+      data = await this.tarazed.replaceDataTags(data);
       data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath: p }));
       if (this.settings.minify) { // Minify JS, when specified
         let minified = await minify(data);
