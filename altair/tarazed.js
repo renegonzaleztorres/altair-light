@@ -30,6 +30,9 @@ class Tarazed {
 
   }
 
+  // escapeRegex : escape RegExp metacharacters in dynamic strings
+  escapeRegex = (value) => String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
   // replaceElemTags : replace element tags in a string with content from file on disk
   // Example: @@ELEM_globals/_nav.html;{"Class":"color-secondary"}
   // - @@ELEM_ is the prefix
@@ -45,12 +48,18 @@ class Tarazed {
     let strng = s;
     let matches = null;
     do { // Replace element tags while there are any to replace
-      matches = strng.match(new RegExp(this.elemTagPrefix + '[a-zA-Z0-9_.\\-\\/\\\\]*(?:;\\{.*?\\})?', 'gi')); // Matches any alphanumeric chars., underscores, periods, forward slashes & backslashes that immediately follow the prefix, and optional ;{...}
+      matches = strng.match(new RegExp(`${this.escapeRegex(this.elemTagPrefix)}[a-zA-Z0-9_.\\-\\/\\\\]*(?:;\\{.*?\\})?`, 'gi')); // Matches any alphanumeric chars., underscores, periods, forward slashes & backslashes that immediately follow the prefix, and optional ;{...}
       if (matches && matches.length > 0) {
         let uniqueMatches = new Set(matches);
         for (const t of uniqueMatches) {
-          let [fp, o = '{}'] = t.split(';'); // Extract the file path and optional JSON string
-          let f = fp.replace(new RegExp(`^${this.elemTagPrefix}`, 'i'), ''); // Prefix removal
+          const separatorIndex = t.indexOf(';');
+          let fp = t;
+          let o = '{}';
+          if (separatorIndex >= 0) {
+            fp = t.slice(0, separatorIndex);
+            o = t.slice(separatorIndex + 1);
+          } // if
+          let f = fp.replace(new RegExp(`^${this.escapeRegex(this.elemTagPrefix)}`, 'i'), ''); // Prefix removal
           f = path.join(this.appPath, f);
           try {
             let d = await fs.readFile(f, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
@@ -60,12 +69,14 @@ class Tarazed {
                 d = this.replaceParamTags(d, params);
               } catch{}
             } // if
-            strng = strng.replace(new RegExp(t, 'g'), d); // Replacement
+            const safeTag = this.escapeRegex(t);
+            strng = strng.replace(new RegExp(safeTag, 'g'), () => d); // Replacement
           } 
           catch (err) {
             if (this.readoutCallback !== null)
               this.readoutCallback(`Reading file ${f} > ${err}`, 'Error');
-            strng = strng.replace(new RegExp(t, 'g'), 'UNDEFINED'); // Replacement
+            const safeTag = this.escapeRegex(t);
+            strng = strng.replace(new RegExp(safeTag, 'g'), () => 'UNDEFINED'); // Replacement
           } // try
         } // for
       } // if
@@ -83,7 +94,7 @@ class Tarazed {
   // - @@DATA_data/file.json#path.to.value?ci=true&raw=true&default=foo&behavior=default
   parseDataTag = (tag) => {
     const token = String(tag ?? '');
-    const body = token.replace(new RegExp(`^${this.dataTagPrefix}`, 'i'), '');
+    const body = token.replace(new RegExp(`^${this.escapeRegex(this.dataTagPrefix)}`, 'i'), '');
     if (body.trim() === '') {
       return null;
     }
@@ -251,7 +262,7 @@ class Tarazed {
     if (typeof s !== 'string') { return s; }
 
     let strng = s;
-    const pattern = new RegExp(`${this.dataTagPrefix}[^\\s"'<>;,)\\}]+`, 'gi');
+    const pattern = new RegExp(`${this.escapeRegex(this.dataTagPrefix)}[^\\s"'<>;,)\\}]+`, 'gi');
     const matches = strng.match(pattern);
     if (!matches) {
       return strng;
@@ -305,8 +316,8 @@ class Tarazed {
         replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
       }
 
-      const safeTag = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      strng = strng.replace(new RegExp(safeTag, 'g'), replacement);
+      const safeTag = this.escapeRegex(token);
+      strng = strng.replace(new RegExp(safeTag, 'g'), () => replacement);
     }
 
     return strng;
@@ -321,14 +332,14 @@ class Tarazed {
   replaceVarTags = (s, vD = {}) => {
     if (typeof s !== 'string'){ return s; }
     let strng = s;
-    let matches = strng.match(new RegExp(`${this.varTagPrefix}[\\w-]+`, 'gi')); // Matches ONLY alphanumeric chars, underscores and hyphens that immediately follow the prefix
+    let matches = strng.match(new RegExp(`${this.escapeRegex(this.varTagPrefix)}[\\w-]+`, 'gi')); // Matches ONLY alphanumeric chars, underscores and hyphens that immediately follow the prefix
     if (matches) {
       let uniqueMatches = new Set(matches);
       for (const t of uniqueMatches) {
-        let k = t.replace(new RegExp(`^${this.varTagPrefix}`, 'i'), '').toLowerCase(); // Prefix removal
+        let k = t.replace(new RegExp(`^${this.escapeRegex(this.varTagPrefix)}`, 'i'), '').toLowerCase(); // Prefix removal
         let v = vD[k] ?? 'UNDEFINED';
-        let safeTag = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape special chars in tag for use in RegExp
-        strng = strng.replace(new RegExp(safeTag, 'g'), v); // Replacement
+        let safeTag = this.escapeRegex(t); // Escape special chars in tag for use in RegExp
+        strng = strng.replace(new RegExp(safeTag, 'g'), () => v); // Replacement
       } // for
     } // if
 
@@ -346,14 +357,15 @@ class Tarazed {
 
     if (typeof s !== 'string'){ return s; }
     let strng = s;
-    let matches = strng.match(new RegExp(this.paramTagPrefix + '[a-zA-Z0-9_-]+', 'gi')); // Matches ONLY alphanumeric chars., underscores and dashes that immediately follow the prefix
+    let matches = strng.match(new RegExp(`${this.escapeRegex(this.paramTagPrefix)}[a-zA-Z0-9_-]+`, 'gi')); // Matches ONLY alphanumeric chars., underscores and dashes that immediately follow the prefix
     if (matches) {
       let uniqueMatches = new Set(matches);
       for (const t of uniqueMatches) {
-        let pa = t.replace(new RegExp(`^${this.paramTagPrefix}`, 'i'), ''); // Prefix removal
+        let pa = t.replace(new RegExp(`^${this.escapeRegex(this.paramTagPrefix)}`, 'i'), ''); // Prefix removal
         let v = params[pa] ?? ''; // Extract the parameter value
         if (params?.FORMAT_PARAMS_FOR_JS === true) v = `{${pa}}`; // Override for template literal interpolation or template string substitution
-        strng = strng.replace(new RegExp(t, 'g'), v); // Replacement
+        const safeTag = this.escapeRegex(t);
+        strng = strng.replace(new RegExp(safeTag, 'g'), () => v); // Replacement
       } // for
     } // if 
 
