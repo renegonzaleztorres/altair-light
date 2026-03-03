@@ -68,6 +68,7 @@ class WebServer extends ExpressServer {
       data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath: p }));
       if (this.settings.minify) // Remove html remarks, when specified
         data = data.replace(/<!--[\s\S]*?-->/g, '');
+      data = await this.applyGlobalReplacements({ content: data, type: 'html', routePath: p });
       res.type('text/html');
       res.send(data);
     }
@@ -98,6 +99,7 @@ class WebServer extends ExpressServer {
           throw new Error(`CSS minification error(s) > ${minified.errors.join(', ')}`);
         data = minified.styles;
       } // if
+      data = await this.applyGlobalReplacements({ content: data, type: 'css', routePath: p });
       res.type('text/css');
       res.send(data);
     }
@@ -128,6 +130,7 @@ class WebServer extends ExpressServer {
           throw new Error(`JS minification error(s) > ${minified.error.message}`);
         data = minified.code;
       } // if
+      data = await this.applyGlobalReplacements({ content: data, type: 'js', routePath: p });
       res.type('application/javascript');
       res.send(data);
     }
@@ -141,6 +144,15 @@ class WebServer extends ExpressServer {
     return;
 
   } // renderJS
+
+  // applyGlobalReplacements : final content replacement hook (override as needed)
+  applyGlobalReplacements = async ({ content, type, routePath } = {}) => {
+    if (typeof content !== 'string' || content.length === 0)
+      return content;
+
+    return content;
+
+  } // applyGlobalReplacements
 
   // pageNameValidation : validate the page|script name
   pageNameValidation = (p) => {

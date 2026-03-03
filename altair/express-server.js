@@ -255,7 +255,7 @@ class ExpressServer extends Lib {
   redirects(statusCode, path, res) {
 
     this.readout(`${statusCode} ${path}`, 'Redirect');
-    res.status(statusCode).redirect(path);
+    res.redirect(statusCode, path);
 
     return;
 

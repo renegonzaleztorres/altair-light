@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [2.2.0] - 2026-03-02
+
+### Added
+- New overridable `applyGlobalReplacements({ content, type, routePath })` hook in `WebServer` for final, route-aware content replacement before responses are sent
+- HTML, CSS, and JS render paths now call `applyGlobalReplacements()` after all template/data/variable replacements and minification (if enabled)
+
+### Fixed
+- `redirects()` now preserves the requested HTTP status code by using `res.redirect(statusCode, path)` (instead of defaulting to 302)
+
+---
+
 ## [2.1.1] - 2026-03-02
 
 ### Fixed
