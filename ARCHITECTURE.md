@@ -1,4 +1,4 @@
-# Altair-Light Architecture (v1.5)
+# Altair-Light Architecture (v1.6)
 
 **Purpose:** LLM agent reference for Altair-Light web framework
 
@@ -9,7 +9,7 @@
 Minimalist Node.js web server framework for AI-assisted development:
 - **File-based routing** - HTML files in `pages/` map to routes
 - **Component system** - Reusable HTML/CSS/JS via template tags
-- **Template engine (Tarazed)** - Four tag types: `@@ELEM_`, `@@PARAM_`, `@@DATA_`, `@@VAR_`
+- **Template engine (Tarazed)** - Five tag types: `@@ELEM_`, `@@REPEAT_`, `@@PARAM_`, `@@DATA_`, `@@VAR_`
 - **Data cache (DATA.json)** - Environment-based config with hot-reload, variables auto-injected
 - **On-demand processing** - No build step; templates processed per request
 - **Space-based** - Multiple projects in isolated `spaces/` directories
@@ -123,7 +123,7 @@ Lib → ExpressServer → WebServer → WebApp
 **WebServer** (`altair/altair.js`): Routing & rendering
 - `this.tarazed` - Template engine instance
 - `routes()` - `GET /` → home, `GET *.css` → CSS, `GET *.js` → JS, `GET *` → HTML
-- `renderHTML(p, res)` - Read page, process `@@ELEM_` (recursive), `@@DATA_`, `@@VAR_`, minify comments
+- `renderHTML(p, res)` - Read page, process `@@ELEM_` (recursive), `@@REPEAT_`, `@@DATA_`, `@@VAR_`, optional comment minification, then `applyGlobalReplacements()`
 - `renderCSS(p, res)` - Read CSS, process tags, minify with CleanCSS
 - `renderJS(p, res)` - Read JS, process tags, minify with Terser
 - `pageNameValidation(p)` - Blocks files starting with `_`
@@ -137,10 +137,11 @@ Lib → ExpressServer → WebServer → WebApp
 
 **Tarazed** (`altair/tarazed.js`): Template engine
 - `replaceElemTags(s)` - Process `@@ELEM_path;{"param":"value"}` (async, recursive)
+- `replaceRepeatTags(s)` - Process `@@REPEAT_componentPath;dataPath#arrayPath;{"Param":"item.path"}` (async)
 - `replaceDataTags(s)` - Process `@@DATA_path/file.json#key.path?modifiers` (async)
 - `replaceVarTags(s, vD)` - Process `@@VAR_name` (case-insensitive)
 - `replaceParamTags(s, params)` - Process `@@PARAM_Name` (case-sensitive)
-- **Processing order:** 1) Elements (recursive, with params), 2) Data tags, 3) Variables
+- **Processing order:** 1) Elements (recursive, with params), 2) Repeat tags, 3) Data tags, 4) Variables
 
 ---
 
@@ -148,11 +149,11 @@ Lib → ExpressServer → WebServer → WebApp
 
 **Startup:** `index.js` → `main.js::main()` → `new WebApp()` → `wa.start()`
 
-**HTML Request:** Route → `renderHTML()` → Validate → Read file → `replaceElemTags()` (recursive) → `replaceDataTags()` → `replaceVarTags()` → Minify comments → Send
+**HTML Request:** Route → `renderHTML()` → Validate → Read file → `replaceElemTags()` (recursive) → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify comments (optional) → `applyGlobalReplacements()` → Send
 
-**CSS Request:** Route → `renderCSS()` → Validate → Read → Process tags → Minify (CleanCSS) → Send
+**CSS Request:** Route → `renderCSS()` → Validate → Read → `replaceElemTags()` → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify (CleanCSS, optional) → `applyGlobalReplacements()` → Send
 
-**JS Request:** Route → `renderJS()` → Validate → Read → Process tags → Minify (Terser) → Send
+**JS Request:** Route → `renderJS()` → Validate → Read → `replaceElemTags()` → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify (Terser, optional) → `applyGlobalReplacements()` → Send
 
 **Error Handling:** ENOENT → 301 redirect to `/` | Invalid name → 301 redirect | Other → 500 | Template error → `'UNDEFINED'`
 
@@ -187,11 +188,19 @@ Lib → ExpressServer → WebServer → WebApp
 - `raw=true`: outputs JSON text with `JSON.stringify(...)` (recommended for `<script>` embedding)
 - Security: JSON path must resolve inside the active space and use `.json` extension
 
+**`@@REPEAT_component/path.html;data/file.json#items`** - Repeat a component for each array item
+- Optional explicit `@@DATA_` source: `@@REPEAT_component/path.html;@@DATA_data/file.json#items`
+- Optional key mapping: `@@REPEAT_component/path.html;data/file.json#items;{"Title":"title","Url":"url","Index":"$index"}`
+- Without mapping: object item keys become params directly (`item.title` -> `@@PARAM_title`)
+- Built-in params per row: `index` (0-based), `number` (1-based)
+- `data/file.json#items` must resolve to an array; fallback behavior uses the same `behavior` modifiers as `@@DATA_`
+
 ### Processing Order
 1. `@@ELEM_` tags (recursive, depth-first)
 2. `@@PARAM_` tags (within each included element)
-3. `@@DATA_` tags (after include expansion)
-4. `@@VAR_` tags (last step)
+3. `@@REPEAT_` tags (array-driven component repetition)
+4. `@@DATA_` tags (after include expansion and repetition)
+5. `@@VAR_` tags (last step)
 
 ### `@@DATA_` Quick Rules (For AI Agents)
 - Use `#` to target a key path: `@@DATA_data/_about-content.json#bio`
@@ -661,6 +670,7 @@ Override `additionalRoutes()` in `web-app/web-app.js`, use `this.app.get()`, `th
 |-----|--------|------|
 | Element | `@@ELEM_path/file.html` | No |
 | Element+Params | `@@ELEM_path/file.html;{"K":"v"}` | No/Yes |
+| Repeat | `@@REPEAT_component/path.html;data/file.json#items` | No |
 | Data | `@@DATA_path/file.json#key.path?mods` | Selector Yes (`ci=true` optional) |
 | Variable | `@@VAR_name` | No |
 | Parameter | `@@PARAM_Name` | Yes |
@@ -686,18 +696,19 @@ Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocat
 **Key Points:**
 - File-based routing (no config)
 - Component system via `@@ELEM_` tags
+- Array-driven component repetition via `@@REPEAT_` tags
 - File-backed JSON selectors via `@@DATA_` tags
 - Variables via `@@VAR_` tags (includes DATA.json auto-injection)
 - Parameters via `@@PARAM_` tags
 - DATA.json: environment-based config with hot-reload, nested objects flattened
-- Processing order: Elements/Parameters → Data tags → Variables
+- Processing order: Elements/Parameters → Repeat tags → Data tags → Variables
 - Private files use `_` prefix (blocked from HTTP)
 - Override methods in `WebApp` for customization
 - Templates processed on each request
 
-**For LLM Agents:**
+**Operational Notes:**
 - Understand hierarchy: Lib → ExpressServer → WebServer → WebApp
-- Know four tag types and processing order
+- Know five tag types and processing order
 - Use DATA.json for site-wide config/content (auto-injected as variables)
 - Nested DATA.json objects flatten: `contact.email` → `@@VAR_contact_email`
 - Use `@@DATA_` for direct JSON file lookups when component/page content needs non-flattened structures

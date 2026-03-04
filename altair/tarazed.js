@@ -14,7 +14,7 @@ import path from 'path';
 
 class Tarazed {
   
-  constructor({ elemTagPrefix = '@@ELEM_', varTagPrefix = '@@VAR_', paramTagPrefix = '@@PARAM_', dataTagPrefix = '@@DATA_', appPath = '', readoutCallback = null } = {}) {
+  constructor({ elemTagPrefix = '@@ELEM_', repeatTagPrefix = '@@REPEAT_', varTagPrefix = '@@VAR_', paramTagPrefix = '@@PARAM_', dataTagPrefix = '@@DATA_', appPath = '', readoutCallback = null } = {}) {
 
     // Error if appPath is missing or blank
     if (typeof appPath !== 'string' || appPath.trim() === '') {
@@ -22,6 +22,7 @@ class Tarazed {
     }
 
     this.elemTagPrefix = elemTagPrefix;
+    this.repeatTagPrefix = repeatTagPrefix;
     this.varTagPrefix = varTagPrefix;
     this.paramTagPrefix = paramTagPrefix;
     this.dataTagPrefix = dataTagPrefix;
@@ -86,6 +87,214 @@ class Tarazed {
     return strng;
 
   } // replaceElemTags
+
+  // stripRepeatTagPrefix : remove @@REPEAT_ from a token
+  stripRepeatTagPrefix = (token) => {
+    const repeatRegex = new RegExp(`^${this.escapeRegex(this.repeatTagPrefix)}`, 'i');
+    if (repeatRegex.test(token)) {
+      return token.replace(repeatRegex, '');
+    }
+
+    return token;
+  } // stripRepeatTagPrefix
+
+  // parseRepeatTag : parse @@REPEAT_ token into parts
+  // Supported patterns:
+  // - @@REPEAT_components/card/_card.html;data/content.json#cards
+  // - @@REPEAT_components/card/_card.html;@@DATA_data/content.json#cards
+  // - @@REPEAT_components/card/_card.html;data/content.json#cards?ci=true
+  // - @@REPEAT_components/card/_card.html;data/content.json#cards?behavior=default&default=EMPTY
+  // - @@REPEAT_components/card/_card.html;data/content.json#groups[0].items
+  // - @@REPEAT_components/card/_card.html;data/content.json#cards;{"Title":"title","Url":"url","Index":"$index"}
+  // - @@REPEAT_components/card/_card.html;data/content.json#cards;{"Name":"meta.name","Order":"$number"}
+  parseRepeatTag = (tag) => {
+    const token = String(tag ?? '');
+    const body = this.stripRepeatTagPrefix(token);
+    if (body.trim() === '') {
+      return null;
+    }
+
+    const firstSeparatorIndex = body.indexOf(';');
+    if (firstSeparatorIndex < 0) {
+      return null;
+    }
+
+    const templatePath = body.slice(0, firstSeparatorIndex).trim();
+    const rest = body.slice(firstSeparatorIndex + 1).trim();
+    if (templatePath === '' || rest === '') {
+      return null;
+    }
+
+    const secondSeparatorIndex = rest.indexOf(';');
+    let dataSource = rest;
+    let mapping = {};
+    if (secondSeparatorIndex >= 0) {
+      dataSource = rest.slice(0, secondSeparatorIndex).trim();
+      const mappingRaw = rest.slice(secondSeparatorIndex + 1).trim();
+      if (mappingRaw !== '') {
+        mapping = JSON.parse(mappingRaw);
+        if (mapping === null || typeof mapping !== 'object' || Array.isArray(mapping)) {
+          return null;
+        }
+      }
+    }
+
+    return {
+      templatePath,
+      dataSource: dataSource.trim(),
+      mapping,
+    };
+  } // parseRepeatTag
+
+  // normalizeTemplateFilePath : normalize, validate and resolve template path
+  normalizeTemplateFilePath = (rawTemplatePath) => {
+    const relativePath = String(rawTemplatePath || '').replace(/\\/g, '/').trim();
+    if (relativePath === '' || path.isAbsolute(relativePath)) {
+      return null;
+    }
+
+    const resolvedPath = path.resolve(this.appPath, relativePath);
+    const appRoot = path.resolve(this.appPath) + path.sep;
+    if (!(resolvedPath + path.sep).startsWith(appRoot) && resolvedPath !== path.resolve(this.appPath)) {
+      return null;
+    }
+
+    return resolvedPath;
+  } // normalizeTemplateFilePath
+
+  // asParamValue : shape value for @@PARAM_ replacement
+  asParamValue = (value) => {
+    if (value === undefined || value === null) {
+      return '';
+    }
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return '';
+      }
+    }
+    return value;
+  } // asParamValue
+
+  // resolveEachSelector : resolve selector against one repeated item
+  resolveEachSelector = ({ item, selector, index }) => {
+    const s = String(selector ?? '').trim();
+    if (s === '$index') {
+      return { found: true, value: index };
+    }
+    if (s === '$number') {
+      return { found: true, value: index + 1 };
+    }
+
+    return this.getByPath(item, s, { ci: false });
+  } // resolveEachSelector
+
+  // buildEachParams : derive params object for one repeated item
+  buildEachParams = ({ item, index, mapping }) => {
+    const params = {};
+    const hasMapping = mapping && typeof mapping === 'object' && Object.keys(mapping).length > 0;
+
+    if (hasMapping) {
+      for (const [paramName, selector] of Object.entries(mapping)) {
+        if (typeof selector !== 'string') {
+          params[paramName] = this.asParamValue(selector);
+          continue;
+        }
+        const resolved = this.resolveEachSelector({ item, selector, index });
+        params[paramName] = this.asParamValue(resolved.found ? resolved.value : '');
+      }
+    } else if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+      for (const [k, v] of Object.entries(item)) {
+        params[k] = this.asParamValue(v);
+      }
+    } else {
+      params.value = this.asParamValue(item);
+    }
+
+    if (params.index === undefined) { params.index = index; }
+    if (params.number === undefined) { params.number = index + 1; }
+    return params;
+  } // buildEachParams
+
+  // replaceRepeatTags : replace @@REPEAT_ tags by repeating an element for each item in a JSON array
+  replaceRepeatTags = async (s) => {
+    if (typeof s !== 'string') { return s; }
+
+    let strng = s;
+    const repeatPrefix = this.escapeRegex(this.repeatTagPrefix);
+    const pattern = new RegExp(`${repeatPrefix}[a-zA-Z0-9_.\\-\\/\\\\]+;[^\\s"'<>;,)\\}]+(?:;\\{.*?\\})?`, 'gi');
+    const matches = strng.match(pattern);
+    if (!matches) {
+      return strng;
+    }
+
+    const uniqueMatches = new Set(matches);
+    const dataFileCache = new Map();
+    const templateCache = new Map();
+
+    for (const token of uniqueMatches) {
+      let replacement = 'UNDEFINED';
+      let modifiers = { behavior: 'strict', defaultValue: null };
+
+      try {
+        const parsedRepeat = this.parseRepeatTag(token);
+        if (!parsedRepeat || parsedRepeat.templatePath === '' || parsedRepeat.dataSource === '') {
+          replacement = 'UNDEFINED';
+        } else {
+          const dataToken = parsedRepeat.dataSource.toUpperCase().startsWith(this.dataTagPrefix.toUpperCase()) ? parsedRepeat.dataSource : `${this.dataTagPrefix}${parsedRepeat.dataSource}`;
+          const parsedData = this.parseDataTag(dataToken);
+          modifiers = this.parseDataModifiers(parsedData?.query || '');
+
+          const normalizedDataPath = this.normalizeDataFilePath(parsedData?.filePath || '');
+          const normalizedTemplatePath = this.normalizeTemplateFilePath(parsedRepeat.templatePath);
+          if (!normalizedDataPath || !normalizedTemplatePath) {
+            replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
+          } else {
+            let jsonData;
+            if (dataFileCache.has(normalizedDataPath)) {
+              jsonData = dataFileCache.get(normalizedDataPath);
+            } else {
+              const fileContents = await fs.readFile(normalizedDataPath, 'utf8');
+              jsonData = JSON.parse(fileContents);
+              dataFileCache.set(normalizedDataPath, jsonData);
+            }
+
+            const lookedUp = this.getByPath(jsonData, parsedData?.selector || '', { ci: modifiers.ci });
+            if (!lookedUp.found || !Array.isArray(lookedUp.value)) {
+              replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
+            } else {
+              let templateText;
+              if (templateCache.has(normalizedTemplatePath)) {
+                templateText = templateCache.get(normalizedTemplatePath);
+              } else {
+                const rawTemplate = await fs.readFile(normalizedTemplatePath, 'utf8');
+                templateText = await this.replaceElemTags(rawTemplate);
+                templateCache.set(normalizedTemplatePath, templateText);
+              }
+
+              let rendered = '';
+              for (let i = 0; i < lookedUp.value.length; i += 1) {
+                const params = this.buildEachParams({ item: lookedUp.value[i], index: i, mapping: parsedRepeat.mapping });
+                rendered += this.replaceParamTags(templateText, params);
+              }
+              replacement = rendered;
+            }
+          }
+        }
+      } catch (err) {
+        if (this.readoutCallback !== null) {
+          this.readoutCallback(`Resolving repeat token ${token} > ${err}`, 'Error');
+        }
+        replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
+      }
+
+      const safeTag = this.escapeRegex(token);
+      strng = strng.replace(new RegExp(safeTag, 'g'), () => replacement);
+    }
+
+    return strng;
+  } // replaceRepeatTags
 
   // parseDataTag : parse @@DATA_ token into parts
   // Supported patterns:

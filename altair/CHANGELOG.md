@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [2.3.0] - 2026-03-04
+
+### Added
+- New `@@REPEAT_` template tag in Tarazed for array-driven component repetition from JSON sources
+- Support for selector-based row mapping in repeat tags (including virtual selectors `$index` and `$number`)
+- Support for optional explicit data-source form inside repeat tags (`@@DATA_...`)
+
+### Changed
+- Template processing pipeline now resolves tags in order: `@@ELEM_` → `@@REPEAT_` → `@@DATA_` → `@@VAR_`
+- HTML, CSS, and JS render paths now execute `replaceRepeatTags()` between element and data replacement
+
 ## [2.2.0] - 2026-03-02
 
 ### Added
