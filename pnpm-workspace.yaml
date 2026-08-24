@@ -1,0 +1,6 @@
+# Supply-chain safety policy: do not resolve package versions until they have
+# been public for at least 24 hours. This applies to direct and transitive
+# dependencies. Keep exceptions rare, version-specific, and documented.
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false

@@ -23,7 +23,8 @@ Minimalist Node.js web server framework for AI-assisted development:
 
 ### Prerequisites
 - Node.js >= 24 < 25
-- `npm install`
+- Latest stable pnpm 11 release
+- `pnpm install`
 
 ### Setup Steps
 
@@ -96,7 +97,7 @@ DEBUG=true
 }
 ```
 
-**4. Start:** `npm start` → `http://localhost:3000`
+**4. Start:** `pnpm start` → `http://localhost:3000`
 
 ---
 

@@ -17,8 +17,24 @@ The framework provides a structured foundation with clear conventions, making it
 
 ## Prerequisites
 
-- **Node.js**: >= 24 (see `package.json` for exact version)
-- **npm**: Comes with Node.js
+- **Node.js**: >= 24 < 25 (the `.nvmrc` selects Node.js 24)
+- **pnpm**: Latest stable pnpm 11 release
+
+### One-time Local Setup
+
+If Node.js 24 and pnpm are not already installed on your computer, run these
+commands once. These commands assume that [nvm](https://github.com/nvm-sh/nvm)
+is installed:
+
+```sh
+nvm install 24
+nvm use 24
+npm install --global pnpm@latest
+pnpm --version
+```
+
+You do not need to repeat this setup for each altair-light project. Use
+`nvm use` and `pnpm install` in each newly cloned project instead.
 
 ## Getting Started
 
@@ -45,8 +61,9 @@ The framework provides a structured foundation with clear conventions, making it
 1. **Install dependencies**:
 
    ```sh
+   nvm use
    node -v
-   npm install
+   pnpm install
    ```
 
 2. **Create environment file**:
@@ -66,7 +83,7 @@ The framework provides a structured foundation with clear conventions, making it
 Start the development server:
 
 ```sh
-npm start
+pnpm start
 ```
 
 The server will start on **http://localhost:3000** (or the port specified in your config).

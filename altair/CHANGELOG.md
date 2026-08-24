@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [2.3.1] - 2026-08-24
+
+### Security
+- Migrated dependency management from npm to pnpm 11
+- Added a strict 24-hour minimum release age for direct and transitive dependencies
+- Configured dependency resolution to fail when registry publication times are unavailable or no eligible version satisfies the requested range
+- Adopted pnpm's default protection against unapproved dependency installation scripts
+
+### Changed
+- Replaced `package-lock.json` with `pnpm-lock.yaml`
+- Added `pnpm-workspace.yaml` for the project-level supply-chain policy
+- Added `.nvmrc` to select the supported Node.js 24 LTS line
+- Updated project setup and development documentation to use pnpm
+
 ## [2.3.0] - 2026-03-04
 
 ### Added
