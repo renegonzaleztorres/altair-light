@@ -1,17 +1,21 @@
 /**
- * Express server
+ * HTTP server
  */
 
-import { express, cors, createServer, path, fs, fsSync } from './dependencies.js'
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { path, fs, fsSync } from './dependencies.js'
 import { WSServer } from './websocket-server.js';
 import Lib from './lib.js';
 
-class ExpressServer extends Lib {
+class HTTPServer extends Lib {
 
   constructor(){
 
     super();
-    this.app = express();
+    this.app = new Hono();
     this.server = null;
     this.wsServer = null;
     
@@ -182,11 +186,23 @@ class ExpressServer extends Lib {
     // Load data before starting server
     await this.loadDataFile();
 
-    this.app.disable('x-powered-by');
-    this.app.use(cors());
-    this.app.use(express.static(this.publicPath));
-    this.app.use(express.json());
-    this.server = createServer(this.app);
+    this.app.use('*', cors());
+    this.app.use('*', serveStatic({ root: this.publicPath }));
+
+    // Routes
+    this.routes();
+
+    // Start watching data file for changes (if enabled)
+    if (this.settings.enableDataWatch) {
+      await this.watchDataFile();
+    }
+
+    // Start listening
+    const port = Number(process.env.PORT || this.settings.localPort);
+    this.server = serve({ fetch: this.app.fetch, port }, (info) => {
+      this.readout(`${this.settings.appName} ${this.settings.nodeEnv} server listening on *: ${info.port}`, 'Start');
+      this.readout(`${this.settings.activeSpace}`, 'Space');
+    }); // serve
 
     // Initialize WebSocket server if enabled
     if (this.settings.enableWebSocket) {
@@ -199,21 +215,6 @@ class ExpressServer extends Lib {
       });
       this.readout(`WebSocket server initialized on ${this.settings.webSocketPath}`, 'WebSocket');
     }
-
-    // Routes
-    this.routes();
-
-    // Start watching data file for changes (if enabled)
-    if (this.settings.enableDataWatch) {
-      await this.watchDataFile();
-    }
-
-    // Start listening
-    let port = process.env.PORT || this.settings.localPort;
-    this.server.listen(port, () => {
-      this.readout(`${this.settings.appName} ${this.settings.nodeEnv} server listening on *: ${port}`, 'Start');
-      this.readout(`${this.settings.activeSpace}`, 'Space');
-    }); // listen
 
     // Register cleanup handlers for graceful shutdown
     const shutdown = () => {
@@ -252,25 +253,21 @@ class ExpressServer extends Lib {
   } // onWsMessage
 
   // redirects : response
-  redirects(statusCode, path, res) {
+  redirects(statusCode, path, context) {
 
     this.readout(`${statusCode} ${path}`, 'Redirect');
-    res.redirect(statusCode, path);
-
-    return;
+    return context.redirect(path, statusCode);
 
   } // redirects
 
   // serverError : response
-  serverError(res, errMessage, errRef, p) {
+  serverError(context, errMessage, errRef, p) {
 
     this.readout(`500 - path: ${p} - message: ${errMessage} - ref: ${errRef}`, 'Server-Error');
-    res.status(500).send('Server Error');
-
-    return;
+    return context.text('Server Error', 500);
 
   } // serverError
 
-} // ExpressServer
+} // HTTPServer
 
-export default ExpressServer;
+export default HTTPServer;

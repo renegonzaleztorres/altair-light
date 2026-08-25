@@ -16,7 +16,10 @@ class WebApp extends WebServer{
 
   // additionalRoutes : override
   additionalRoutes = () => {
-    
+
+    // Hono route example:
+    // this.app.get('/api/health', (context) => context.json({ ok: true }));
+
     return;
 
   } // additionalRoutes

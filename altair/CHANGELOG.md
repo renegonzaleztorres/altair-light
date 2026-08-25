@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [3.0.0] - 2026-08-24
+
+### Changed
+- Replaced Express with Hono and `@hono/node-server` for HTTP routing, middleware, static files, and Web Standard responses
+- Renamed the framework-specific `express-server.js` base to the generic `http-server.js` and renamed its class to `HTTPServer`
+- Changed custom HTTP route handlers from Express request/response arguments to Hono contexts
+- Updated rendering, redirects, and server-error helpers to return Hono responses
+- Preserved the existing `ws`-based WebSocket server, session management, security controls, and message hooks on the underlying Node.js HTTP server
+
+### Removed
+- Removed the `express` and standalone `cors` dependencies
+
 ## [2.3.1] - 2026-08-24
 
 ### Security

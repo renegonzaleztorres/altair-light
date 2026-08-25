@@ -4,7 +4,7 @@ A super minimalist and efficient web server module.
 
 **Altair** is a Node.js module that provides a super minimalist and efficient foundation for developing websites and web applications using Generative AI. Designed for flexibility and performance, it simplifies the creation of customizable web services, APIs, and more.
 
-**Altair** leverages the Express server package.
+**Altair** uses Hono with its Node.js adapter for lightweight HTTP routing and middleware.
 
 **Altair** includes optional WebSocket support via the `ws` package for real-time bidirectional communication.
 
@@ -99,6 +99,14 @@ Environment-based JSON configuration with hot-reload capability:
 **Use for:** Site content, contact info, environment-specific config (not secrets)
 
 ## Usage
+
+Custom HTTP routes use Hono contexts and return Hono responses:
+
+```js
+additionalRoutes = () => {
+  this.app.get('/api/health', (context) => context.json({ ok: true }));
+};
+```
 
 ### Case 1
 

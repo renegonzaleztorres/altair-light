@@ -1,4 +1,4 @@
-# Altair-Light Architecture (v1.6)
+# Altair-Light Architecture (v3.0)
 
 **Purpose:** LLM agent reference for Altair-Light web framework
 
@@ -104,7 +104,7 @@ DEBUG=true
 ## Class Hierarchy
 
 ```
-Lib → ExpressServer → WebServer → WebApp
+Lib → HTTPServer → WebServer → WebApp
 ```
 
 ### Key Classes
@@ -113,10 +113,10 @@ Lib → ExpressServer → WebServer → WebApp
 - `this.settings` - Config object (appName, activeSpace, debug, minify, etc.)
 - `trimSlashes(s)`, `readout(msg, tag)`, `nowToJSONDateUTC()`
 
-**ExpressServer** (`altair/express-server.js`): Express setup
-- `this.app` - Express instance
+**HTTPServer** (`altair/http-server.js`): Hono and Node.js HTTP setup
+- `this.app` - Hono instance
 - `this.dataCache` - In-memory cache from DATA.json (access via `getDataCache()`)
-- `start()` - Loads DATA.json, setup CORS, static files, JSON parser, routes, listen
+- `start()` - Loads DATA.json, sets up CORS, static files, routes, WebSockets, and listening
 - `loadDataFile()` - Loads and merges DATA.json (environment-based)
 - `getDataCache()` - Returns dataCache object
 - `redirects()`, `serverError()`
@@ -124,9 +124,9 @@ Lib → ExpressServer → WebServer → WebApp
 **WebServer** (`altair/altair.js`): Routing & rendering
 - `this.tarazed` - Template engine instance
 - `routes()` - `GET /` → home, `GET *.css` → CSS, `GET *.js` → JS, `GET *` → HTML
-- `renderHTML(p, res)` - Read page, process `@@ELEM_` (recursive), `@@REPEAT_`, `@@DATA_`, `@@VAR_`, optional comment minification, then `applyGlobalReplacements()`
-- `renderCSS(p, res)` - Read CSS, process tags, minify with CleanCSS
-- `renderJS(p, res)` - Read JS, process tags, minify with Terser
+- `renderHTML(p, context)` - Read page, process `@@ELEM_` (recursive), `@@REPEAT_`, `@@DATA_`, `@@VAR_`, optional comment minification, then `applyGlobalReplacements()`
+- `renderCSS(p, context)` - Read CSS, process tags, minify with CleanCSS
+- `renderJS(p, context)` - Read JS, process tags, minify with Terser
 - `pageNameValidation(p)` - Blocks files starting with `_`
 - `varDefinitions()` - Returns {year, timestamp, ts, currentpath} + additionalVarDefinitions() + flattened DATA.json vars
 - `additionalVarDefinitions()` - Override for custom variables
@@ -350,7 +350,7 @@ Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocat
 **Custom Routes:**
 ```javascript
 additionalRoutes() {
-  this.app.get('/api/data', (req, res) => res.json({ data: 'value' }));
+  this.app.get('/api/data', (context) => context.json({ data: 'value' }));
 }
 ```
 
@@ -363,17 +363,17 @@ additionalVarDefinitions() {
 
 **Custom Rendering:**
 ```javascript
-renderHTML = async (p, res) => {
+renderHTML = async (p, context) => {
   // Custom preprocessing
-  await super.renderHTML(p, res);
+  return super.renderHTML(p, context);
 }
 ```
 
 **Custom Middleware:**
 ```javascript
-start() {
-  this.app.use((req, res, next) => { /* custom */ next(); });
-  super.start();
+async start() {
+  this.app.use('*', async (context, next) => { /* custom */ await next(); });
+  return super.start();
 }
 ```
 
@@ -483,7 +483,7 @@ WEBSOCKET_ALLOWED_ORIGINS="same-origin"
 
 ### Architecture
 
-When enabled, `ExpressServer.start()` creates a `WSServer` instance attached to the HTTP server. The WebSocket server is available as `this.wsServer` in any subclass.
+When enabled, `HTTPServer.start()` creates a `WSServer` instance attached to the Node.js HTTP server returned by Hono's adapter. The WebSocket server is available as `this.wsServer` in any subclass.
 
 **Session model:** Clients send an `init` message with a `session_id`. The server maps sessions to WebSocket connections, enabling message queuing for temporarily disconnected clients and session reconnection.
 
@@ -565,10 +565,10 @@ ws.onmessage = (event) => {
 **Multi-Tenant:** Custom routing to select space dynamically:
 ```javascript
 additionalRoutes() {
-  this.app.use((req, res, next) => {
-    const subdomain = req.hostname.split('.')[0];
+  this.app.use('*', async (context, next) => {
+    const subdomain = new URL(context.req.url).hostname.split('.')[0];
     this.currentSpace = `spaces/${subdomain}`;
-    next();
+    await next();
   });
 }
 ```
@@ -576,15 +576,15 @@ additionalRoutes() {
 **API + Frontend:**
 ```javascript
 additionalRoutes() {
-  this.app.get('/api/users', (req, res) => res.json({ users: [] }));
+  this.app.get('/api/users', (context) => context.json({ users: [] }));
 }
 ```
 
 **Dynamic Data:**
 ```javascript
-renderHTML = async (p, res) => {
+renderHTML = async (p, context) => {
   this.customData = await this.fetchData(p);
-  await super.renderHTML(p, res);
+  return super.renderHTML(p, context);
 }
 additionalVarDefinitions() {
   return { ...this.customData };
@@ -610,7 +610,7 @@ additionalVarDefinitions() {
 Override `additionalVarDefinitions()` in `web-app/web-app.js`, return object, use `@@VAR_KEYNAME`
 
 **Task 4: Add Route**
-Override `additionalRoutes()` in `web-app/web-app.js`, use `this.app.get()`, `this.app.post()`, etc.
+Override `additionalRoutes()` in `web-app/web-app.js`; use Hono methods such as `this.app.get()` and `this.app.post()`, and return responses from the route context.
 
 **Task 5: Organize CSS/JS**
 1. **CSS:** Include `_theme.css` first, `_additionals.css` last, component CSS files in between
@@ -708,7 +708,7 @@ Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocat
 - Templates processed on each request
 
 **Operational Notes:**
-- Understand hierarchy: Lib → ExpressServer → WebServer → WebApp
+- Understand hierarchy: Lib → HTTPServer → WebServer → WebApp
 - Know five tag types and processing order
 - Use DATA.json for site-wide config/content (auto-injected as variables)
 - Nested DATA.json objects flatten: `contact.email` → `@@VAR_contact_email`

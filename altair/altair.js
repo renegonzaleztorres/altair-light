@@ -3,10 +3,10 @@
  */
 
 import { fs, path, minify, CleanCSS } from './dependencies.js'
-import ExpressServer from './express-server.js';
+import HTTPServer from './http-server.js';
 import Tarazed from './tarazed.js';
 
-class WebServer extends ExpressServer {
+class WebServer extends HTTPServer {
 
   constructor() {
 
@@ -19,30 +19,32 @@ class WebServer extends ExpressServer {
   routes = () => {
 
     // Root
-    this.app.get('/', (req, res) => {
-      this.readout(`path: ${req.path}`, 'Request-Root');
-      this.renderHTML('home', res);
+    this.app.get('/', (context) => {
+      this.readout(`path: ${context.req.path}`, 'Request-Root');
+      return this.renderHTML('home', context);
     });
 
-    // CSS scripts
-    this.app.get(/.*\.css$/, (req, res) => {
-      this.readout(`path: ${req.path}`, 'Request-CSS');
-      this.renderCSS(req.path, res);
-    }); // get
-
-    // JS scripts
-    this.app.get(/.*\.js$/, (req, res) => {
-      this.readout(`path: ${req.path}`, 'Request-JS');
-      this.renderJS(req.path, res);
+    // CSS and JS scripts
+    this.app.get('*', (context, next) => {
+      const requestPath = context.req.path;
+      if (requestPath.endsWith('.css')) {
+        this.readout(`path: ${requestPath}`, 'Request-CSS');
+        return this.renderCSS(requestPath, context);
+      }
+      if (requestPath.endsWith('.js')) {
+        this.readout(`path: ${requestPath}`, 'Request-JS');
+        return this.renderJS(requestPath, context);
+      }
+      return next();
     }); // get
 
     // Additional routes definitions
     this.additionalRoutes();
 
     // HTML pages and "catch all"
-    this.app.get('*', (req, res) => {
-      this.readout(`path: ${req.path}`, 'Request-CatchAll');
-      this.renderHTML(req.path, res);
+    this.app.get('*', (context) => {
+      this.readout(`path: ${context.req.path}`, 'Request-CatchAll');
+      return this.renderHTML(context.req.path, context);
     }); // get
 
     return;
@@ -57,10 +59,10 @@ class WebServer extends ExpressServer {
   } // additionalRoutes
 
   // renderHTML : render html pages
-  renderHTML = async (p, res) => {
+  renderHTML = async (p, context) => {
 
     try{
-      if (!this.pageNameValidation(p)) { this.redirects(301, '/', res); return; }
+      if (!this.pageNameValidation(p)) return this.redirects(301, '/', context);
       let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.pagesLocation, (this.trimSlashes(p) + '.html'));
       let data = await fs.readFile(filePath, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
       data = await this.tarazed.replaceElemTags(data);
@@ -70,14 +72,13 @@ class WebServer extends ExpressServer {
       if (this.settings.minify) // Remove html remarks, when specified
         data = data.replace(/<!--[\s\S]*?-->/g, '');
       data = await this.applyGlobalReplacements({ content: data, type: 'html', routePath: p });
-      res.type('text/html');
-      res.send(data);
+      return context.html(data);
     }
     catch (err) {
       if (err.code === 'ENOENT') // “Error NO ENTry” or “No such file or directory”
-        this.redirects(301, '/', res);
+        return this.redirects(301, '/', context);
       else // Other errors
-        this.serverError(res, err.message, 'renderHTML()', p);
+        return this.serverError(context, err.message, 'renderHTML()', p);
     } // try
 
     return;
@@ -85,10 +86,10 @@ class WebServer extends ExpressServer {
   } // renderHTML
 
   // renderCSS : render css scripts
-  renderCSS = async (p, res) => {
+  renderCSS = async (p, context) => {
 
     try {
-      if (!this.pageNameValidation(p)) { this.redirects(301, '/', res); return; }
+      if (!this.pageNameValidation(p)) return this.redirects(301, '/', context);
       let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.trimSlashes(p));
       let data = await fs.readFile(filePath, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
       data = await this.tarazed.replaceElemTags(data);
@@ -102,14 +103,13 @@ class WebServer extends ExpressServer {
         data = minified.styles;
       } // if
       data = await this.applyGlobalReplacements({ content: data, type: 'css', routePath: p });
-      res.type('text/css');
-      res.send(data);
+      return context.body(data, 200, { 'Content-Type': 'text/css; charset=UTF-8' });
     }
     catch (err) {
       if (err.code === 'ENOENT') // “Error NO ENTry” or “No such file or directory”
-        this.redirects(301, '/', res);
+        return this.redirects(301, '/', context);
       else // Other errors
-        this.serverError(res, err.message, 'renderCSS()', p);
+        return this.serverError(context, err.message, 'renderCSS()', p);
     } // try
 
     return;
@@ -117,10 +117,10 @@ class WebServer extends ExpressServer {
   } // renderCSS
 
   // renderJS : render js scripts
-  renderJS = async (p, res) => {
+  renderJS = async (p, context) => {
 
     try{
-      if (!this.pageNameValidation(p)) { this.redirects(301, '/', res); return; }
+      if (!this.pageNameValidation(p)) return this.redirects(301, '/', context);
       let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.trimSlashes(p));
       let data = await fs.readFile(filePath, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
       data = await this.tarazed.replaceElemTags(data);
@@ -134,14 +134,13 @@ class WebServer extends ExpressServer {
         data = minified.code;
       } // if
       data = await this.applyGlobalReplacements({ content: data, type: 'js', routePath: p });
-      res.type('application/javascript');
-      res.send(data);
+      return context.body(data, 200, { 'Content-Type': 'application/javascript; charset=UTF-8' });
     }
     catch (err) {
       if (err.code === 'ENOENT') // “Error NO ENTry” or “No such file or directory”
-        this.redirects(301, '/', res);
+        return this.redirects(301, '/', context);
       else // Other errors
-        this.serverError(res, err.message, 'renderJS()', p);
+        return this.serverError(context, err.message, 'renderJS()', p);
     } // try
 
     return;
