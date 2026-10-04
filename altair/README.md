@@ -48,6 +48,7 @@ DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
 MINIFY=true
 DEBUG=true
+HOST="127.0.0.1"
 ENABLE_WEBSOCKET=false
 WEBSOCKET_PATH="/ws"
 WEBSOCKET_HEARTBEAT_MS=30000
@@ -55,6 +56,7 @@ WEBSOCKET_SESSION_TTL_SECS=3600
 WEBSOCKET_ALLOWED_ORIGINS=""
 ```
 
+- HOST — HTTP bind address. Defaults to `127.0.0.1` for local/loopback access only; recommended for production behind Nginx or another reverse proxy. Set to `0.0.0.0` only when all IPv4 interfaces must be reachable, such as in Docker, containers, VMs, or LAN development.
 -	APP_NAME — Your project’s application name.
 -	ACTIVE_SPACE — Path to the working “space” or directory where app files are "sourced" from.
 -	PUBLIC_LOCATION — Directory under ACTIVE_SPACE that acts as the public root for static assets.

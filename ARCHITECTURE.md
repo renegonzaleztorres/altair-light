@@ -23,8 +23,14 @@ Minimalist Node.js web server framework for AI-assisted development:
 
 ### Prerequisites
 - Node.js >= 24 < 25
-- Latest stable pnpm 11 release
+- pnpm 12.8.1 (pinned by `packageManager` in `package.json`)
 - `pnpm install`
+
+The pnpm pin is an application-level toolchain choice rather than an Altair
+runtime requirement. Forks inherit 12.8.1 as the recommended default, but may
+select another Node-compatible pnpm version. A changed pin must be accompanied
+by a lockfile verified or regenerated with that version and a successful test
+run.
 
 ### Setup Steps
 
@@ -40,6 +46,7 @@ DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
 MINIFY=false
 DEBUG=true
+HOST="127.0.0.1"
 ```
 
 **2. Verify `config/default.json`**:
@@ -256,7 +263,7 @@ spaces/[ACTIVE_SPACE]/
 
 **When to use ENV:**
 - Database credentials, API keys, secrets
-- Deployment-specific: `NODE_ENV`, `PORT`, `ACTIVE_SPACE`
+- Deployment-specific: `NODE_ENV`, `HOST`, `PORT`, `ACTIVE_SPACE`
 - Infrastructure paths: `PUBLIC_LOCATION`, `DATA_LOCATION`
 - Feature flags: `MINIFY`, `DEBUG`, `ENABLE_DATA_WATCH`
 - **Never:** Site content, frequently-changing values
@@ -303,8 +310,11 @@ DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
 MINIFY=true
 DEBUG=true
+HOST=127.0.0.1
 PORT=3000
 ```
+
+`HOST` defaults to `127.0.0.1`, limiting access to the local machine. This is the recommended production setting behind Nginx or another reverse proxy. Set `HOST=0.0.0.0` only when Docker, containers, VMs, LAN development, or another deployment explicitly requires access through all IPv4 interfaces.
 
 ### Config Files
 `config/default.json` (required):

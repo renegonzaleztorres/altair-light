@@ -1,10 +1,11 @@
 {
   "name": "altair-light",
   "version": "1.0.0",
+  "packageManager": "pnpm@12.8.1",
   "description": "altair-light, a foundational, super minimalist web server based on the Altair module. Designed for AI-assisted development of apps & sites",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "start": "node index.js"
   },
   "author": "",

@@ -18,23 +18,34 @@ The framework provides a structured foundation with clear conventions, making it
 ## Prerequisites
 
 - **Node.js**: >= 24 < 25 (the `.nvmrc` selects Node.js 24)
-- **pnpm**: Latest stable pnpm 11 release
+- **pnpm**: 12.8.1 (pinned by `packageManager` in `package.json`)
 
 ### One-time Local Setup
 
-If Node.js 24 and pnpm are not already installed on your computer, run these
-commands once. These commands assume that [nvm](https://github.com/nvm-sh/nvm)
-is installed:
+If Node.js 24 is not already installed on your computer, run these commands
+once. These commands assume that [nvm](https://github.com/nvm-sh/nvm) is
+installed. Corepack reads the project's `packageManager` field and provides the
+pinned pnpm version:
 
 ```sh
 nvm install 24
 nvm use 24
-npm install --global pnpm@latest
+corepack enable
 pnpm --version
 ```
 
+Alternatively, install the pinned version directly with
+`npm install --global pnpm@12.8.1`.
+
 You do not need to repeat this setup for each altair-light project. Use
 `nvm use` and `pnpm install` in each newly cloned project instead.
+
+The `packageManager` field belongs to the application repository. New Altair
+Light forks inherit pnpm 12.8.1 as the recommended default, but an application
+may pin another pnpm version that is compatible with its Node.js version and
+dependencies. When changing the pin, verify or regenerate `pnpm-lock.yaml` with
+the selected pnpm version and run the application's tests before committing the
+toolchain change.
 
 ## Getting Started
 
@@ -107,6 +118,7 @@ DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
 MINIFY=true
 DEBUG=true
+HOST="127.0.0.1"
 ENABLE_WEBSOCKET=false
 WEBSOCKET_PATH="/ws"
 WEBSOCKET_HEARTBEAT_MS=30000
@@ -115,6 +127,7 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 ```
 
 **Variable Descriptions:**
+- `HOST` — HTTP bind address. Defaults to `127.0.0.1` for local/loopback access only; recommended for production behind Nginx or another reverse proxy. Set to `0.0.0.0` only when all IPv4 interfaces must be reachable, such as in Docker, containers, VMs, or LAN development.
 - `APP_NAME` — Your project's application name
 - `ACTIVE_SPACE` — Path to the working "space" or directory where app files are sourced from
 - `PUBLIC_LOCATION` — Directory under ACTIVE_SPACE that acts as the public root for static assets

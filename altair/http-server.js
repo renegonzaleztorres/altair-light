@@ -199,8 +199,9 @@ class HTTPServer extends Lib {
 
     // Start listening
     const port = Number(process.env.PORT || this.settings.localPort);
-    this.server = serve({ fetch: this.app.fetch, port }, (info) => {
-      this.readout(`${this.settings.appName} ${this.settings.nodeEnv} server listening on *: ${info.port}`, 'Start');
+    const hostname = process.env.HOST || '127.0.0.1';
+    this.server = serve({ fetch: this.app.fetch, port, hostname }, (info) => {
+      this.readout(`${this.settings.appName} ${this.settings.nodeEnv} server listening on ${hostname}:${info.port}`, 'Start');
       this.readout(`${this.settings.activeSpace}`, 'Space');
     }); // serve
 
