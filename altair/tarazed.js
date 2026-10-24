@@ -479,6 +479,7 @@ class Tarazed {
 
     const uniqueMatches = new Set(matches);
     const fileCache = new Map();
+    const replacements = new Map();
 
     for (const token of uniqueMatches) {
       let replacement = 'UNDEFINED';
@@ -525,9 +526,14 @@ class Tarazed {
         replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
       }
 
-      const safeTag = this.escapeRegex(token);
-      strng = strng.replace(new RegExp(safeTag, 'g'), () => replacement);
+      replacements.set(token, replacement);
     }
+
+    // Replace one complete token at a time. Replacing each token with its own
+    // unbounded RegExp allows a shorter selector (for example, "date") to
+    // consume the prefix of a longer selector (for example, "dateDisplay").
+    pattern.lastIndex = 0;
+    strng = strng.replace(pattern, (token) => replacements.get(token) ?? token);
 
     return strng;
   } // replaceDataTags
@@ -565,20 +571,15 @@ class Tarazed {
   replaceParamTags = (s, params) => {
 
     if (typeof s !== 'string'){ return s; }
-    let strng = s;
-    let matches = strng.match(new RegExp(`${this.escapeRegex(this.paramTagPrefix)}[a-zA-Z0-9_-]+`, 'gi')); // Matches ONLY alphanumeric chars., underscores and dashes that immediately follow the prefix
-    if (matches) {
-      let uniqueMatches = new Set(matches);
-      for (const t of uniqueMatches) {
-        let pa = t.replace(new RegExp(`^${this.escapeRegex(this.paramTagPrefix)}`, 'i'), ''); // Prefix removal
-        let v = params[pa] ?? ''; // Extract the parameter value
-        if (params?.FORMAT_PARAMS_FOR_JS === true) v = `{${pa}}`; // Override for template literal interpolation or template string substitution
-        const safeTag = this.escapeRegex(t);
-        strng = strng.replace(new RegExp(safeTag, 'g'), () => v); // Replacement
-      } // for
-    } // if 
+    const pattern = new RegExp(`${this.escapeRegex(this.paramTagPrefix)}[a-zA-Z0-9_-]+`, 'gi'); // Matches ONLY alphanumeric chars., underscores and dashes that immediately follow the prefix
 
-    return strng;
+    // Resolve each complete match independently. This prevents a shorter
+    // parameter token from replacing the prefix of a longer parameter token.
+    return s.replace(pattern, (token) => {
+      const parameterName = token.replace(new RegExp(`^${this.escapeRegex(this.paramTagPrefix)}`, 'i'), ''); // Prefix removal
+      if (params?.FORMAT_PARAMS_FOR_JS === true) return `{${parameterName}}`; // Override for template literal interpolation or template string substitution
+      return params?.[parameterName] ?? ''; // Extract the parameter value
+    });
 
   } // replaceParamTags
 

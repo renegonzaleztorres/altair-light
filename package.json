@@ -5,7 +5,9 @@
   "description": "altair-light, a foundational, super minimalist web server based on the Altair module. Designed for AI-assisted development of apps & sites",
   "main": "index.js",
   "scripts": {
-    "test": "node --test",
+    "test": "pnpm test:altair && pnpm test:app",
+    "test:altair": "node --test \"altair/**/*.test.js\"",
+    "test:app": "node --test \"tests/**/*.test.js\"",
     "start": "node index.js"
   },
   "author": "",

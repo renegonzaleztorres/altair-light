@@ -6,7 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const altairDirectory = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.dirname(altairDirectory);
+const fixturePath = path.join(altairDirectory, 'test', 'fixtures', 'http-server-fixture.js');
 
 const getAvailablePort = async () => {
   const server = createServer();
@@ -40,7 +42,7 @@ const startServer = async ({ hostname, port }) => {
     env.HOST = hostname;
   }
 
-  const child = spawn(process.execPath, ['index.js'], {
+  const child = spawn(process.execPath, [fixturePath], {
     cwd: projectRoot,
     env,
     stdio: ['ignore', 'pipe', 'pipe']

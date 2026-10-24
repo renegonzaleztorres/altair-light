@@ -30,9 +30,15 @@ class HTTPServer extends Lib {
 
     // Track if file watching is active
     this.dataFileWatcher = null;
+    this.dataFileWatchListener = null;
+    this.dataFileWatchInterval = 500; // 500ms stat polling survives file replacement
+    this.dataFileWatchStopped = false;
 
     // Debouncing timer for data reload
     this.dataReloadTimer = null;
+
+    // Retry timer for a reload attempted during an incomplete write
+    this.dataReloadRetryTimer = null;
     this.dataReloadDebounce = 1000; // 1 second
 
     // Retry logic for mid-write scenarios
@@ -98,39 +104,54 @@ class HTTPServer extends Lib {
 
   } // loadDataFile
 
-  // watchDataFile : watch data file for changes and hot-reload with debouncing
+  // scheduleDataReload : debounce data reloads caused by file-system events
+  scheduleDataReload() {
+
+    if (this.dataReloadTimer) {
+      clearTimeout(this.dataReloadTimer);
+    }
+
+    this.dataReloadTimer = setTimeout(async () => {
+      this.dataReloadTimer = null;
+      await this.attemptDataReload();
+    }, this.dataReloadDebounce);
+
+  } // scheduleDataReload
+
+  // watchDataFile : watch DATA_FILE with stat polling
   // Debounce: prevents multiple reloads during rapid edits (1s delay)
   // Retry: attemptDataReload() retries once on mid-write errors (500ms delay)
+  // Path-based stat polling survives atomic-save and rsync rename-overwrite patterns
   async watchDataFile() {
 
-    try {
-      // Check if file exists before watching
-      await fs.access(this.dataFilePath);
+    this.dataFileWatchStopped = false;
 
-      // Start watching (fsSync.watch required, not available in fs/promises)
-      this.dataFileWatcher = fsSync.watch(this.dataFilePath, (eventType) => {
-        if (eventType === 'change' || eventType === 'rename') {
-          // Debounce: clear existing timer, restart countdown
-          if (this.dataReloadTimer) {
-            clearTimeout(this.dataReloadTimer);
-          }
-
-          // Debounce: delay reload by 1s (multiple rapid saves = single reload)
-          this.dataReloadTimer = setTimeout(async () => {
-            await this.attemptDataReload(); // Retry once on mid-write errors
-            this.dataReloadTimer = null;
-          }, this.dataReloadDebounce);
-        }
-      });
-
-      this.readout(`Watching data file: ${this.dataFilePath}`, 'Data-Watch');
-    } catch (err) {
-      if (err.code === 'ENOENT') {
-        this.readout(`Data file not found, skipping file watch`, 'Data-Watch');
-      } else {
-        this.readout(`Cannot watch data file: ${err.message}`, 'Data-Watch-Error');
-      }
+    if (this.dataFileWatchListener) {
+      fsSync.unwatchFile(this.dataFilePath, this.dataFileWatchListener);
     }
+
+    this.dataFileWatchListener = (current, previous) => {
+      if (this.dataFileWatchStopped) {
+        return;
+      }
+
+      const changed = current.mtimeMs !== previous.mtimeMs ||
+        current.size !== previous.size ||
+        current.ino !== previous.ino ||
+        current.nlink !== previous.nlink;
+
+      if (changed) {
+        this.scheduleDataReload();
+      }
+    };
+
+    this.dataFileWatcher = fsSync.watchFile(
+      this.dataFilePath,
+      { persistent: true, interval: this.dataFileWatchInterval },
+      this.dataFileWatchListener
+    );
+
+    this.readout(`Watching data file path: ${this.dataFilePath}`, 'Data-Watch');
 
   } // watchDataFile
 
@@ -146,8 +167,12 @@ class HTTPServer extends Lib {
         await fs.access(this.dataFilePath);
         // File exists, likely mid-write - retry after delay
         this.readout(`Retrying data reload (${retryCount + 1}/${this.dataReloadMaxRetries})...`, 'Data-Watch');
-        setTimeout(async () => {
-          await this.loadDataFile();
+        if (this.dataReloadRetryTimer) {
+          clearTimeout(this.dataReloadRetryTimer);
+        }
+        this.dataReloadRetryTimer = setTimeout(async () => {
+          this.dataReloadRetryTimer = null;
+          await this.attemptDataReload(retryCount + 1);
         }, this.dataReloadRetryDelay);
       } catch (err) {
         // File doesn't exist, don't retry
@@ -160,15 +185,23 @@ class HTTPServer extends Lib {
   // stopWatchingDataFile : stop watching data file (cleanup)
   stopWatchingDataFile() {
 
-    if (this.dataFileWatcher) {
-      this.dataFileWatcher.close();
-      this.dataFileWatcher = null;
+    this.dataFileWatchStopped = true;
+
+    if (this.dataFileWatchListener) {
+      fsSync.unwatchFile(this.dataFilePath, this.dataFileWatchListener);
+      this.dataFileWatchListener = null;
       this.readout('Stopped watching data file', 'Data-Watch');
     }
+    this.dataFileWatcher = null;
 
     if (this.dataReloadTimer) {
       clearTimeout(this.dataReloadTimer);
       this.dataReloadTimer = null;
+    }
+
+    if (this.dataReloadRetryTimer) {
+      clearTimeout(this.dataReloadRetryTimer);
+      this.dataReloadRetryTimer = null;
     }
 
   } // stopWatchingDataFile

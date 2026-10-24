@@ -173,6 +173,19 @@ Environment-based JSON configuration with hot-reload capability:
 }
 ```
 
+Hot reload follows the configured DATA file path with stat polling, so editor
+atomic saves and rsync rename-overwrite deployments continue to be detected
+after the original file inode is replaced.
+
+## Testing
+
+- `pnpm test` runs both the Altair framework tests and application tests.
+- `pnpm test:altair` runs only tests belonging to the Altair framework.
+- `pnpm test:app` runs only application tests under `tests/`.
+
+The Altair HTTP tests use a minimal test-only server and do not execute the
+application's root `index.js` or custom `WebApp` startup behavior.
+
 ## Documentation
 
 - **[altair/README.md](./altair/README.md)** — Altair module documentation

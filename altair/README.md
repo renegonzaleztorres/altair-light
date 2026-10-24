@@ -94,7 +94,7 @@ Environment-based JSON configuration with hot-reload capability:
 **Features:**
 - Merges `default` + `NODE_ENV` sections
 - Nested objects flatten to variables: `contact.email` → `@@VAR_contact_email` (lowercase)
-- Hot-reload: file changes auto-update (1s debounce, no server restart)
+- Hot-reload: path-based stat polling detects in-place edits and atomic/rsync replacements (1s debounce, no server restart)
 - Atomic swap: invalid JSON keeps existing cache (site stays functional)
 - Access: `this.getDataCache()` in code, `@@VAR_*` in templates
 

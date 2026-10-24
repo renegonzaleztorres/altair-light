@@ -1,4 +1,4 @@
-# Altair-Light Architecture (v3.0)
+# Altair-Light Architecture (v3.1.1)
 
 **Purpose:** LLM agent reference for Altair-Light web framework
 
@@ -343,7 +343,7 @@ Location: `{activeSpace}/data/DATA.json`
 **Behavior:**
 - Loaded at startup, merged: `default` + `NODE_ENV` section
 - Nested objects flattened: `contact.email` → `@@VAR_contact_email` (lowercase, underscore-separated)
-- Hot-reload: file changes auto-reload (debounced 1s, retry once on errors)
+- Hot-reload: path-based stat polling detects in-place edits and atomic/rsync replacements, then reloads with a 1s debounce and one retry on errors
 - Atomic swap: invalid JSON keeps existing cache (website stays functional)
 - Access in code: `this.getDataCache()` returns original nested structure
 

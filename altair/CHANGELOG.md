@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [3.1.1] - 2026-10-22
+
+### Fixed
+- Prevented prefix-related `@@PARAM_` names such as `date` and `dateDisplay` from replacing part of one another
+- Prevented prefix-related `@@DATA_` selectors such as `#date` and `#dateDisplay` from replacing part of one another
+- Changed DATA-file hot reload to path-based stat polling so atomic-save and rsync rename-overwrite deployments do not strand a watcher on the replaced file inode
+- Tracked reload retry timers for graceful shutdown
+
+### Changed
+- Separated framework and application test commands into `test:altair` and `test:app`, while keeping `test` as the complete suite
+- Isolated Altair HTTP tests from the application's root `index.js` by using a minimal test-only server fixture
+
 ## [3.1.0] - 2026-10-03
 
 ### Added
