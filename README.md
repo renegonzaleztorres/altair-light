@@ -116,6 +116,14 @@ PAGES_LOCATION="pages"
 DATA_LOCATION="data"
 DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
+ENABLE_ROUTE_CACHE=false
+ROUTE_CACHE_MAX_ENTRIES=250
+ROUTE_CACHE_WATCH=true
+ROUTE_CACHE_QUIET_MS=250
+ROUTE_CACHE_MAX_BATCH_MS=2000
+ROUTE_CACHE_RECONCILE=false
+ROUTE_CACHE_RECONCILE_MS=30000
+ROUTE_CACHE_DEBUG=false
 MINIFY=true
 DEBUG=true
 HOST="127.0.0.1"
@@ -135,6 +143,13 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 - `DATA_LOCATION` — Subdirectory under ACTIVE_SPACE containing DATA files
 - `DATA_FILE` — JSON file containing data
 - `ENABLE_DATA_WATCH` — If `true`, watch for changes and reload DATA_FILE
+- `ENABLE_ROUTE_CACHE` — Enables the bounded, in-memory cache for public file-backed HTML routes; defaults to `false`
+- `ROUTE_CACHE_MAX_ENTRIES` — Maximum cached pages per process; defaults to `250`
+- `ROUTE_CACHE_WATCH` — Watches the complete active space and invalidates cached pages after settled changes
+- `ROUTE_CACHE_QUIET_MS` / `ROUTE_CACHE_MAX_BATCH_MS` — Control how rapid deployment changes are grouped
+- `ROUTE_CACHE_RECONCILE` — Enables an optional recurring metadata scan to catch missed filesystem events
+- `ROUTE_CACHE_RECONCILE_MS` — Reconciliation interval, from 5 seconds to 1 hour; defaults to 30 seconds
+- `ROUTE_CACHE_DEBUG` — Enables cache diagnostics without logging response or private request data
 - `MINIFY` — If `true`, CSS and JS assets will be minified during build or serve
 - `DEBUG` — If `true`, debug output will be printed to the console
 - `ENABLE_WEBSOCKET` — If `true`, start WebSocket server on the HTTP server
@@ -177,6 +192,27 @@ Hot reload follows the configured DATA file path with stat polling, so editor
 atomic saves and rsync rename-overwrite deployments continue to be detected
 after the original file inode is replaced.
 
+### HTML Route Cache
+
+When `ENABLE_ROUTE_CACHE=true`, Altair stores final public, file-backed HTML in
+the running process after each route is first requested. The cache is lazy,
+limited by `ROUTE_CACHE_MAX_ENTRIES`, and uses least-recently-used eviction.
+It is never written to disk and starts empty after a process restart.
+
+Requests with a query string, cookie, or authorization header bypass the
+shared cache. Custom routes, errors, redirects, and pages using
+`@@VAR_TIMESTAMP` or `@@VAR_TS` are not cached. Eligible responses include an
+ETag and `Cache-Control: no-cache`, allowing browsers and CDNs to revalidate
+with a small `304 Not Modified` response.
+
+With `ROUTE_CACHE_WATCH=true`, one active-space watcher batches kinetic edits,
+reloads DATA.json safely, and clears the page cache once. It subsumes
+`ENABLE_DATA_WATCH`, so two DATA observers are never started. If full-space
+watching is disabled, `ENABLE_DATA_WATCH=true` retains the specialized DATA
+watcher, but other kinetic changes require `reloadActiveSpace()` or a Unix
+`SIGHUP`. Optional snapshot reconciliation adds periodic metadata scans for
+uncontrolled in-place deployments.
+
 ## Testing
 
 - `pnpm test` runs both the Altair framework tests and application tests.
@@ -188,6 +224,8 @@ application's root `index.js` or custom `WebApp` startup behavior.
 
 ## Documentation
 
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — This project’s application architecture, custom integration, content model, and deployment decisions
+- **[altair/ARCHITECTURE.md](./altair/ARCHITECTURE.md)** — Versioned Altair module internals and framework extension contract
 - **[altair/README.md](./altair/README.md)** — Altair module documentation
 
 ## License

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [3.2.0] - 2026-10-24
+
+### Added
+- Added an optional bounded in-memory cache for successful core file-backed HTML routes
+- Added lazy LRU population, concurrent miss coalescing, generation race protection, ETags, and conditional `304` responses
+- Added conservative bypasses for queries, cookies, authorization, custom routes, and request-time timestamp variables
+- Added a batched full active-space watcher with optional in-memory snapshot reconciliation
+- Added `reloadActiveSpace()` and Unix `SIGHUP` handling as deployment reload backstops
+- Added validated route-cache environment settings and framework-owned cache/watcher tests
+
+### Changed
+- DATA loading now returns structured state and change results while retaining atomic last-known-good behavior
+- Full-space watching subsumes DATA observation so only one watcher owns DATA reloads
+- Graceful shutdown now closes route-cache, snapshot, reconciliation, recovery, debounce, and retry state idempotently
+- Moved the canonical framework architecture into `altair/ARCHITECTURE.md` so it is versioned with the Altair module independently from application architecture
+
 ## [3.1.1] - 2026-10-22
 
 ### Fixed

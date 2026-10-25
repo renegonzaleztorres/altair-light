@@ -4,7 +4,8 @@
 #     https://www.atlassian.com/git/tutorials/saving-changes/gitignore
 
 # Development Files
-WORKBENCH/
+WORKBENCH/*
+!WORKBENCH/README.md
 tests/
 
 # Environment

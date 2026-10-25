@@ -6,9 +6,11 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
+import { isDeepStrictEqual } from 'node:util';
 import { path, fs, fsSync } from './dependencies.js'
 import { WSServer } from './websocket-server.js';
 import Lib from './lib.js';
+import SpaceWatcher from './space-watcher.js';
 
 class HTTPServer extends Lib {
 
@@ -18,6 +20,7 @@ class HTTPServer extends Lib {
     this.app = new Hono();
     this.server = null;
     this.wsServer = null;
+    this.activeSpacePath = path.join(this.settings.appRootPath, this.settings.activeSpace);
     
     // Construct public path (scoped to active space)
     this.publicPath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.publicLocation);
@@ -39,11 +42,20 @@ class HTTPServer extends Lib {
 
     // Retry timer for a reload attempted during an incomplete write
     this.dataReloadRetryTimer = null;
+    this.dataReloadRetryResolve = null;
     this.dataReloadDebounce = 1000; // 1 second
 
     // Retry logic for mid-write scenarios
     this.dataReloadRetryDelay = 500; // 500ms
     this.dataReloadMaxRetries = 1; // Retry once
+
+    // Generalized active-space watcher and lifecycle state
+    this.spaceWatcher = null;
+    this.routeCacheAdmissionSuspended = false;
+    this.activeSpaceReloadPromise = null;
+    this.shuttingDown = false;
+    this.shutdownPromise = null;
+    this.signalHandlers = null;
 
   } // constructor
 
@@ -57,7 +69,7 @@ class HTTPServer extends Lib {
 
       // Build new cache in temporary variable (atomic preparation)
       let newCache;
-      if (parsedData.hasOwnProperty('default')) {
+      if (Object.prototype.hasOwnProperty.call(parsedData, 'default')) {
         // Environment-based configuration detected
         const defaultData = parsedData.default || {};
         const envData = parsedData[this.settings.nodeEnv] || {};
@@ -72,9 +84,10 @@ class HTTPServer extends Lib {
         this.readout(`Data loaded from ${this.dataFilePath}`, 'Data-Load');
       }
 
+      const changed = !isDeepStrictEqual(this.dataCache, newCache);
       // Atomic swap: only update if all parsing succeeded
       this.dataCache = newCache;
-      return true;
+      return { applied: true, state: changed ? 'loaded' : 'unchanged', changed };
 
     } catch (err) {
       if (err.code === 'ENOENT') {
@@ -83,22 +96,23 @@ class HTTPServer extends Lib {
           `Data file not found at ${this.dataFilePath}, using empty cache`,
           'Data-Load'
         );
+        const changed = !isDeepStrictEqual(this.dataCache, {});
         this.dataCache = {};
-        return false;
+        return { applied: true, state: 'missing', changed };
       } else if (err instanceof SyntaxError) {
         // Invalid JSON - keep existing cache (atomic: no partial updates)
         this.readout(
           `Invalid JSON in ${this.dataFilePath}, keeping existing cache: ${err.message}`,
           'Data-Error'
         );
-        return false;
+        return { applied: false, state: 'invalid', retryable: true, changed: false };
       } else {
         // Other errors - keep existing cache
         this.readout(
           `Error loading data file, keeping existing cache: ${err.message}`,
           'Data-Error'
         );
-        return false;
+        return { applied: false, state: 'error', retryable: false, changed: false };
       }
     }
 
@@ -113,7 +127,8 @@ class HTTPServer extends Lib {
 
     this.dataReloadTimer = setTimeout(async () => {
       this.dataReloadTimer = null;
-      await this.attemptDataReload();
+      const result = await this.attemptDataReload();
+      if (result.applied && result.changed) this.invalidateRouteCache('data-change');
     }, this.dataReloadDebounce);
 
   } // scheduleDataReload
@@ -159,26 +174,29 @@ class HTTPServer extends Lib {
   async attemptDataReload(retryCount = 0) {
 
     this.readout('Data file changed, reloading...', 'Data-Watch');
-    const success = await this.loadDataFile();
+    const result = await this.loadDataFile();
 
-    // If failed and retries available, check if file exists and retry
-    if (!success && retryCount < this.dataReloadMaxRetries) {
+    // If a write was incomplete and retries remain, wait once and retry.
+    if (!result.applied && result.retryable && retryCount < this.dataReloadMaxRetries && !this.shuttingDown) {
       try {
         await fs.access(this.dataFilePath);
-        // File exists, likely mid-write - retry after delay
         this.readout(`Retrying data reload (${retryCount + 1}/${this.dataReloadMaxRetries})...`, 'Data-Watch');
-        if (this.dataReloadRetryTimer) {
-          clearTimeout(this.dataReloadRetryTimer);
-        }
-        this.dataReloadRetryTimer = setTimeout(async () => {
-          this.dataReloadRetryTimer = null;
-          await this.attemptDataReload(retryCount + 1);
-        }, this.dataReloadRetryDelay);
+        await new Promise((resolve) => {
+          this.dataReloadRetryResolve = resolve;
+          this.dataReloadRetryTimer = setTimeout(() => {
+            this.dataReloadRetryTimer = null;
+            this.dataReloadRetryResolve = null;
+            resolve();
+          }, this.dataReloadRetryDelay);
+        });
+        if (this.shuttingDown) return result;
+        return this.attemptDataReload(retryCount + 1);
       } catch (err) {
-        // File doesn't exist, don't retry
         this.readout('File no longer exists, skipping retry', 'Data-Watch');
       }
     }
+
+    return result;
 
   } // attemptDataReload
 
@@ -203,6 +221,10 @@ class HTTPServer extends Lib {
       clearTimeout(this.dataReloadRetryTimer);
       this.dataReloadRetryTimer = null;
     }
+    if (this.dataReloadRetryResolve) {
+      this.dataReloadRetryResolve();
+      this.dataReloadRetryResolve = null;
+    }
 
   } // stopWatchingDataFile
 
@@ -213,11 +235,100 @@ class HTTPServer extends Lib {
 
   } // getDataCache
 
+  // invalidateRouteCache : extension point implemented by WebServer
+  invalidateRouteCache(reason = 'unspecified') {
+
+    return 0;
+
+  } // invalidateRouteCache
+
+  // startChangeObservation : select one owner for DATA.json observation
+  async startChangeObservation() {
+
+    if (this.settings.enableRouteCache && this.settings.routeCacheWatch) {
+      this.stopWatchingDataFile();
+      this.spaceWatcher = new SpaceWatcher({
+        rootPath: this.activeSpacePath,
+        quietMs: this.settings.routeCacheQuietMs,
+        maxBatchMs: this.settings.routeCacheMaxBatchMs,
+        reconcileEnabled: this.settings.routeCacheReconcile,
+        reconcileMs: this.settings.routeCacheReconcileMs,
+        onDirty: () => {},
+        onUncertain: () => {
+          this.routeCacheAdmissionSuspended = true;
+        },
+        onBatch: async ({ reason, rootChanged }) => {
+          this.routeCacheAdmissionSuspended = true;
+          const dataResult = await this.attemptDataReload();
+          if (!dataResult.applied) return false;
+          this.invalidateRouteCache(rootChanged ? 'active-space-root-change' : `kinetic-${reason}`);
+          this.routeCacheAdmissionSuspended = false;
+          return true;
+        },
+        readoutCallback: this.readout
+      });
+      await this.spaceWatcher.start();
+      return;
+    }
+
+    if (this.settings.routeCacheReconcile) {
+      console.warn('[Configuration] ROUTE_CACHE_RECONCILE requires ENABLE_ROUTE_CACHE=true and ROUTE_CACHE_WATCH=true; reconciliation is disabled');
+    }
+    if (this.settings.enableRouteCache && !this.settings.routeCacheWatch) {
+      console.warn('[Route-Cache] Full-space watching is disabled; non-DATA changes require reloadActiveSpace() or SIGHUP');
+    }
+    if (this.settings.enableDataWatch) await this.watchDataFile();
+
+  } // startChangeObservation
+
+  // reloadActiveSpace : complete deployment-safe active-space refresh
+  async reloadActiveSpace({ reason = 'manual' } = {}) {
+
+    if (this.shuttingDown) return false;
+    if (this.activeSpaceReloadPromise) return this.activeSpaceReloadPromise;
+    this.activeSpaceReloadPromise = (async () => {
+      this.routeCacheAdmissionSuspended = true;
+      const dataResult = await this.attemptDataReload();
+      if (!dataResult.applied || this.shuttingDown) return false;
+
+      if (this.spaceWatcher) {
+        const attached = await this.spaceWatcher.reattach(reason);
+        if (!attached || this.shuttingDown) return false;
+      }
+
+      this.invalidateRouteCache(`active-space-reload-${reason}`);
+      this.routeCacheAdmissionSuspended = false;
+      return true;
+    })();
+
+    try {
+      return await this.activeSpaceReloadPromise;
+    } finally {
+      this.activeSpaceReloadPromise = null;
+    }
+
+  } // reloadActiveSpace
+
+  routeCacheLookupAllowed() {
+
+    return !this.shuttingDown && !this.spaceWatcher?.uncertain;
+
+  } // routeCacheLookupAllowed
+
+  routeCacheAdmissionAllowed() {
+
+    return this.routeCacheLookupAllowed() && !this.routeCacheAdmissionSuspended && !this.spaceWatcher?.dirty;
+
+  } // routeCacheAdmissionAllowed
+
   // start : start app
   async start() {
 
     // Load data before starting server
-    await this.loadDataFile();
+    const startupDataResult = await this.loadDataFile();
+    if (!startupDataResult.applied && this.settings.enableRouteCache) {
+      this.routeCacheAdmissionSuspended = true;
+    }
 
     this.app.use('*', cors());
     this.app.use('*', serveStatic({ root: this.publicPath }));
@@ -226,9 +337,7 @@ class HTTPServer extends Lib {
     this.routes();
 
     // Start watching data file for changes (if enabled)
-    if (this.settings.enableDataWatch) {
-      await this.watchDataFile();
-    }
+    await this.startChangeObservation();
 
     // Start listening
     const port = Number(process.env.PORT || this.settings.localPort);
@@ -251,25 +360,53 @@ class HTTPServer extends Lib {
     }
 
     // Register cleanup handlers for graceful shutdown
-    const shutdown = () => {
-      this.readout('Shutting down...', 'Shutdown');
-      this.stopWatchingDataFile();
-      if (this.wsServer) {
-        this.wsServer.close();
-        this.readout('WebSocket server closed', 'Shutdown');
-      }
-      this.server.close(() => {
-        this.readout('HTTP server closed', 'Shutdown');
-        process.exit(0);
-      });
+    this.signalHandlers = {
+      shutdown: () => void this.shutdown({ exitProcess: true }),
+      reload: () => void this.reloadActiveSpace({ reason: 'sighup' })
     };
-
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', this.signalHandlers.shutdown);
+    process.on('SIGINT', this.signalHandlers.shutdown);
+    process.on('SIGHUP', this.signalHandlers.reload);
 
     return;
 
   } // start
+
+  // shutdown : idempotently release all server and watcher resources
+  async shutdown({ exitProcess = false } = {}) {
+
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.shuttingDown = true;
+    this.routeCacheAdmissionSuspended = true;
+    this.shutdownPromise = new Promise((resolve) => {
+      this.readout('Shutting down...', 'Shutdown');
+      this.stopWatchingDataFile();
+      if (this.spaceWatcher) this.spaceWatcher.close();
+      this.spaceWatcher = null;
+      if (typeof this.closeRouteCache === 'function') this.closeRouteCache();
+      if (this.wsServer) {
+        this.wsServer.close();
+        this.readout('WebSocket server closed', 'Shutdown');
+      }
+
+      if (this.signalHandlers) {
+        process.off('SIGTERM', this.signalHandlers.shutdown);
+        process.off('SIGINT', this.signalHandlers.shutdown);
+        process.off('SIGHUP', this.signalHandlers.reload);
+        this.signalHandlers = null;
+      }
+
+      const finish = () => {
+        this.readout('HTTP server closed', 'Shutdown');
+        resolve();
+        if (exitProcess) process.exit(0);
+      };
+      if (this.server) this.server.close(finish);
+      else finish();
+    });
+    return this.shutdownPromise;
+
+  } // shutdown
 
   // routes : definitions (override as needed)
   routes() {

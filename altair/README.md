@@ -46,6 +46,14 @@ PAGES_LOCATION="pages"
 DATA_LOCATION="data"
 DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
+ENABLE_ROUTE_CACHE=false
+ROUTE_CACHE_MAX_ENTRIES=250
+ROUTE_CACHE_WATCH=true
+ROUTE_CACHE_QUIET_MS=250
+ROUTE_CACHE_MAX_BATCH_MS=2000
+ROUTE_CACHE_RECONCILE=false
+ROUTE_CACHE_RECONCILE_MS=30000
+ROUTE_CACHE_DEBUG=false
 MINIFY=true
 DEBUG=true
 HOST="127.0.0.1"
@@ -64,6 +72,13 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 - DATA_LOCATION — Subdirectory under ACTIVE_SPACE containing DATA files
 - DATA_FILE — JSON file containing data
 - ENABLE_DATA_WATCH — If true, watch for changes and reload DATA_FILE
+- ENABLE_ROUTE_CACHE — Enable lazy in-memory caching of core file-backed HTML routes (default false)
+- ROUTE_CACHE_MAX_ENTRIES — Maximum route entries per process (default 250)
+- ROUTE_CACHE_WATCH — Observe the complete active space and batch cache invalidation
+- ROUTE_CACHE_QUIET_MS / ROUTE_CACHE_MAX_BATCH_MS — Filesystem event batch timing
+- ROUTE_CACHE_RECONCILE — Enable optional periodic snapshot comparison
+- ROUTE_CACHE_RECONCILE_MS — Reconciliation interval (default 30000; valid 5000–3600000)
+- ROUTE_CACHE_DEBUG — Emit safe cache diagnostics
 -	MINIFY — If true, CSS and JS assets will be minified during build or serve.
 - DEBUG — If true, debug output will be printed to the console.
 - ENABLE_WEBSOCKET — If true, start WebSocket server on the HTTP server.
@@ -99,6 +114,22 @@ Environment-based JSON configuration with hot-reload capability:
 - Access: `this.getDataCache()` in code, `@@VAR_*` in templates
 
 **Use for:** Site content, contact info, environment-specific config (not secrets)
+
+### Route Cache
+
+The optional Route Cache stores final HTML bodies and ETags in the current
+Node.js process. Entries are created only when requested, bounded by an LRU
+limit, and cleared after accepted active-space changes. Concurrent cold
+requests for the same route share one render. Query strings, cookies,
+authorization, custom routes, errors, redirects, and request-time timestamp
+variables bypass shared storage.
+
+`ROUTE_CACHE_WATCH=true` selects the generalized active-space watcher whenever
+the route cache is enabled. That watcher also reloads DATA.json, regardless of
+`ENABLE_DATA_WATCH`, so there is exactly one DATA observer. Otherwise the
+existing DATA path watcher remains available. `reloadActiveSpace()` and
+`SIGHUP` provide a deployment backstop; there is intentionally no cache-list
+or cache-only-clear administration command in version 3.2.0.
 
 ## Usage
 
@@ -168,6 +199,13 @@ import { main } from './web-app/main.js';
 
 main();
 ```
+
+## Architecture
+
+- [Altair module architecture](ARCHITECTURE.md) — framework internals,
+  rendering, caching, watching, lifecycle, and supported extension points
+- [Application architecture](../ARCHITECTURE.md) — project-specific Altair
+  integration, kinetic content, configuration choices, and deployment model
 
 ## License
 
