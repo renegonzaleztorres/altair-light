@@ -113,6 +113,19 @@ APP_NAME="<PROJECT_NAME>"
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
+MEDIA_LOCATION="media"
+MEDIA_CDN_FALLBACK=false
+MEDIA_CDN_BASE_URL=""
+MEDIA_PUBLISH_ENABLED=false
+MEDIA_PUBLISH_PROVIDER="s3-compatible"
+MEDIA_PUBLISH_BUCKET=""
+MEDIA_PUBLISH_ENDPOINT=""
+MEDIA_PUBLISH_REGION=""
+MEDIA_PUBLISH_FORCE_PATH_STYLE=false
+MEDIA_PUBLISH_VERIFY_PUBLIC=false
+MEDIA_PUBLISH_ACCESS_KEY_ID=""
+MEDIA_PUBLISH_SECRET_ACCESS_KEY=""
+MEDIA_PUBLISH_SESSION_TOKEN=""
 DATA_LOCATION="data"
 DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
@@ -140,6 +153,10 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 - `ACTIVE_SPACE` — Path to the working "space" or directory where app files are sourced from
 - `PUBLIC_LOCATION` — Directory under ACTIVE_SPACE that acts as the public root for static assets
 - `PAGES_LOCATION` — Subdirectory under ACTIVE_SPACE containing HTML pages that map to routes
+- `MEDIA_LOCATION` — Managed media directory beneath `PUBLIC_LOCATION`; defaults to `media`
+- `MEDIA_CDN_FALLBACK` / `MEDIA_CDN_BASE_URL` — Optional missing-local-media redirect to a validated CDN origin
+- `MEDIA_PUBLISH_*` — Explicit CLI publisher configuration for S3-compatible storage; disabled by default
+- `MEDIA_PUBLISH_ACCESS_KEY_ID`, `MEDIA_PUBLISH_SECRET_ACCESS_KEY`, and optional `MEDIA_PUBLISH_SESSION_TOKEN` — Provider-neutral secrets passed only to the media publisher; global AWS credential variables are not used
 - `DATA_LOCATION` — Subdirectory under ACTIVE_SPACE containing DATA files
 - `DATA_FILE` — JSON file containing data
 - `ENABLE_DATA_WATCH` — If `true`, watch for changes and reload DATA_FILE
@@ -157,6 +174,24 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 - `WEBSOCKET_HEARTBEAT_MS` — Ping interval in ms for dead connection detection (default: `30000`)
 - `WEBSOCKET_SESSION_TTL_SECS` — TTL in seconds for disconnected sessions (default: `3600`)
 - `WEBSOCKET_ALLOWED_ORIGINS` — Origin policy: `""` reject all (default), `"*"` allow all, `"same-origin"`, or comma-separated whitelist
+
+#### Media configuration reference
+
+| Variable | Default | Accepted value and purpose |
+| --- | --- | --- |
+| `MEDIA_LOCATION` | `media` | Safe relative directory beneath `PUBLIC_LOCATION`, such as `media` or `assets/media`. |
+| `MEDIA_CDN_FALLBACK` | `false` | Boolean. After a local miss, redirect eligible media `GET` and `HEAD` requests to the configured CDN. |
+| `MEDIA_CDN_BASE_URL` | None | Public HTTPS origin such as `https://media.example.com`; paths, queries, fragments, and embedded credentials are rejected. Local HTTP is allowed only for localhost testing. |
+| `MEDIA_PUBLISH_ENABLED` | `false` | Boolean. Enables the explicit `media:publish` command. |
+| `MEDIA_PUBLISH_PROVIDER` | `s3-compatible` | The only v1 adapter and accepted value. Supports AWS S3, Cloudflare R2, and compatible object storage. |
+| `MEDIA_PUBLISH_BUCKET` | None | Required destination bucket when publishing. |
+| `MEDIA_PUBLISH_ENDPOINT` | Empty | Empty uses the standard AWS S3 endpoint. R2 and other providers supply their S3 API origin. |
+| `MEDIA_PUBLISH_REGION` | None | Required when publishing; use the actual AWS region or `auto` for R2. |
+| `MEDIA_PUBLISH_FORCE_PATH_STYLE` | `false` | Boolean. Enable only for an S3-compatible provider that requires path-style bucket addressing. |
+| `MEDIA_PUBLISH_VERIFY_PUBLIC` | `false` | Boolean. Also verify public delivery through `MEDIA_CDN_BASE_URL` after storage verification. |
+| `MEDIA_PUBLISH_ACCESS_KEY_ID` | None | Required provider-neutral publisher access-key ID. |
+| `MEDIA_PUBLISH_SECRET_ACCESS_KEY` | None | Required provider-neutral publisher secret key. |
+| `MEDIA_PUBLISH_SESSION_TOKEN` | Empty | Optional token for temporary credentials. |
 
 ### Config File
 
@@ -212,6 +247,37 @@ watching is disabled, `ENABLE_DATA_WATCH=true` retains the specialized DATA
 watcher, but other kinetic changes require `reloadActiveSpace()` or a Unix
 `SIGHUP`. Optional snapshot reconciliation adds periodic metadata scans for
 uncontrolled in-place deployments.
+
+### Managed Media and CDN Publishing
+
+Use stable root-relative references such as `/media/images/team.jpg`. Local
+files belong under
+`<ACTIVE_SPACE>/<PUBLIC_LOCATION>/<MEDIA_LOCATION>` and are served normally.
+Media bytes remain outside Git. Because `.gitignore` cannot read environment
+variables, update its managed-media rule if `PUBLIC_LOCATION` or
+`MEDIA_LOCATION` differs from the included defaults.
+
+For media-heavy sites, configure the S3-compatible publisher for AWS S3 or
+Cloudflare R2, preview its work, and then publish:
+
+```sh
+pnpm media:publish -- --dry-run
+pnpm media:publish
+```
+
+The verified publication manifest is derived from the selected active space at
+`<ACTIVE_SPACE>/.altair/media-publication.json`. The publisher uploads only new
+or byte-changed files, retains local and remote-only files, streams large
+objects, and exits without adding memory or background work to the web server.
+
+With `MEDIA_CDN_FALLBACK=true`, a missing local `/media/...` `GET` or `HEAD`
+receives a safe `307` to `MEDIA_CDN_BASE_URL`. Local files always win. In
+performance-sensitive production deployments, route `/media/*` directly to the
+object store's public delivery domain at the edge so requests bypass Altair.
+
+Publish and verify required media before activating content that references it.
+See [the Altair module documentation](./altair/README.md#media-publishing-and-cdn-delivery)
+for provider settings, security constraints, and operational details.
 
 ## Testing
 

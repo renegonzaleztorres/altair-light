@@ -11,6 +11,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { path, fs, fsSync } from './dependencies.js'
 import { WSServer } from './websocket-server.js';
 import Lib from './lib.js';
+import { createMediaRedirectUrl, mediaRequestTarget, resolveMediaConfiguration } from './media-config.js';
 import SpaceWatcher from './space-watcher.js';
 
 class HTTPServer extends Lib {
@@ -32,6 +33,7 @@ class HTTPServer extends Lib {
     this.server = null;
     this.wsServer = null;
     this.activeSpacePath = path.join(this.settings.appRootPath, this.settings.activeSpace);
+    this.mediaConfiguration = null;
     
     // Construct public path (scoped to active space)
     this.publicPath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.publicLocation);
@@ -256,6 +258,8 @@ class HTTPServer extends Lib {
   // startChangeObservation : select one owner for DATA.json observation
   async startChangeObservation() {
 
+    if (!this.mediaConfiguration) this.initializeMediaConfiguration();
+
     if (this.settings.enableRouteCache && this.settings.routeCacheWatch) {
       this.stopWatchingDataFile();
       this.spaceWatcher = new SpaceWatcher({
@@ -264,6 +268,7 @@ class HTTPServer extends Lib {
         maxBatchMs: this.settings.routeCacheMaxBatchMs,
         reconcileEnabled: this.settings.routeCacheReconcile,
         reconcileMs: this.settings.routeCacheReconcileMs,
+        ignoredPaths: [this.mediaConfiguration.mediaRelativePath, '.altair'],
         onDirty: () => {},
         onUncertain: () => {
           this.routeCacheAdmissionSuspended = true;
@@ -332,8 +337,36 @@ class HTTPServer extends Lib {
 
   } // routeCacheAdmissionAllowed
 
+  initializeMediaConfiguration() {
+
+    this.mediaConfiguration = resolveMediaConfiguration(this.settings);
+    this.activeSpacePath = this.mediaConfiguration.activeSpacePath;
+    this.publicPath = this.mediaConfiguration.publicPath;
+    return this.mediaConfiguration;
+
+  } // initializeMediaConfiguration
+
+  mediaFallback(context) {
+
+    if (!this.settings.mediaCdnFallback) return null;
+    const method = context.req.method.toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') return null;
+    const configuration = this.mediaConfiguration || this.initializeMediaConfiguration();
+    const target = mediaRequestTarget(context.req.url, configuration.mediaUrlPrefix);
+    if (!target) return null;
+    const location = createMediaRedirectUrl(configuration.cdnBaseUrl, target);
+    this.readout(`307 ${target.pathname}`, 'Media-CDN');
+    return context.body(null, 307, {
+      'Cache-Control': 'no-store',
+      'Location': location
+    });
+
+  } // mediaFallback
+
   // start : start app
   async start() {
+
+    this.initializeMediaConfiguration();
 
     // Load data before starting server
     const startupDataResult = await this.loadDataFile();
@@ -343,6 +376,7 @@ class HTTPServer extends Lib {
 
     this.app.use('*', cors());
     this.app.use('*', serveStatic({ root: this.publicPath }));
+    this.app.use('*', (context, next) => this.mediaFallback(context) || next());
 
     // Routes
     this.routes();

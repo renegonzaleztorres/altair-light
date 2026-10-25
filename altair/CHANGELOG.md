@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [3.4.0] - 2026-10-25
+
+### Added
+- Added a provider-neutral managed media namespace derived from `ACTIVE_SPACE`, `PUBLIC_LOCATION`, and `MEDIA_LOCATION`
+- Added the explicit `media:publish` CLI with dry-run and structured JSON output
+- Added streamed SHA-256 classification, content-signature validation, a local publication lock, and an atomically written verified manifest
+- Added an isolated S3-compatible adapter for AWS S3 and Cloudflare R2 with bounded multipart uploads and remote metadata verification
+- Added optional local-miss CDN redirects for safe `GET` and `HEAD` media requests while preserving local static-file precedence
+- Added automatic route-watcher exclusions for managed media and `.altair` operational state
+- Added framework tests for configuration, path safety, publishing, failure recovery, provider verification, fallback routing, and watcher isolation
+
+### Changed
+- Added the modular AWS S3 client, multipart upload helper, and file-signature inspector as publisher dependencies; provider code remains outside the HTTP server import graph
+- Publisher credentials use media-specific, provider-neutral environment names and are passed explicitly to the storage adapter
+- Media bytes are ignored by Git while `.gitkeep` and the verified publication manifest remain trackable
+- Active-space snapshot reconciliation no longer scans managed media or `.altair` state
+
 ## [3.3.0] - 2026-10-25
 
 ### Added

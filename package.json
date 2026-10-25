@@ -8,15 +8,19 @@
     "test": "pnpm test:altair && pnpm test:app",
     "test:altair": "node --test \"altair/**/*.test.js\"",
     "test:app": "node --test \"tests/**/*.test.js\"",
+    "media:publish": "node altair/media-publisher-cli.js",
     "start": "node index.js"
   },
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1156.0",
+    "@aws-sdk/lib-storage": "^3.1156.0",
     "@hono/node-server": "^2.1.1",
     "clean-css": "^5.3.3",
     "config": "^3.3.11",
     "dotenv": "^16.4.1",
+    "file-type": "^22.2.0",
     "hono": "^4.13.3",
     "terser": "^5.19.2",
     "ws": "^8.19.0"

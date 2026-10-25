@@ -57,6 +57,14 @@ Thumbs.db
 *.mov
 *.wmv
 
+# Altair managed media bytes remain outside Git. Keep the directory placeholder.
+spaces/*/public/media/**
+!spaces/*/public/media/.gitkeep
+
+# Retain the verified publication manifest, not locks or atomic-write files.
+spaces/*/.altair/*
+!spaces/*/.altair/media-publication.json
+
 # AI / Code Assistants
 *.code-workspace
 .cursor/

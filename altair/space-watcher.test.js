@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -139,6 +139,37 @@ test('enabled reconciliation owns a configured recurring timer and close removes
     watcher.close();
     assert.equal(watcher.reconcileTimer, null);
     assert.equal(watcher.snapshot, null);
+  } finally {
+    watcher.close();
+    await rm(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('ignored media and Altair metadata do not dirty the watcher or enter snapshots', async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-space-ignore-'));
+  const watcher = new SpaceWatcher({
+    rootPath,
+    ignoredPaths: ['public/media', '.altair']
+  });
+  try {
+    await mkdir(path.join(rootPath, 'public', 'media'), { recursive: true });
+    await mkdir(path.join(rootPath, '.altair'), { recursive: true });
+    await writeFile(path.join(rootPath, 'page.html'), 'page');
+    await writeFile(path.join(rootPath, 'public', 'media', 'image.png'), 'media');
+    await writeFile(path.join(rootPath, '.altair', 'media-publication.json'), '{}');
+    const snapshot = await watcher.buildSnapshot();
+    assert.equal(snapshot.files.has('page.html'), true);
+    assert.equal(snapshot.files.has('public/media'), false);
+    assert.equal(snapshot.files.has('public/media/image.png'), false);
+    assert.equal(snapshot.files.has('.altair'), false);
+
+    watcher.markDirty('page.html');
+    assert.equal(watcher.dirty, true);
+    watcher.dirty = false;
+    watcher.pendingPaths.clear();
+    watcher.clearBatchTimers();
+    assert.equal(watcher.isIgnored('public/media/image.png'), true);
+    assert.equal(watcher.isIgnored('.altair/media-publication.lock'), true);
   } finally {
     watcher.close();
     await rm(rootPath, { recursive: true, force: true });

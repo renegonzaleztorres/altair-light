@@ -43,6 +43,19 @@ APP_NAME="altair-light"
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
+MEDIA_LOCATION="media"
+MEDIA_CDN_FALLBACK=false
+MEDIA_CDN_BASE_URL=""
+MEDIA_PUBLISH_ENABLED=false
+MEDIA_PUBLISH_PROVIDER="s3-compatible"
+MEDIA_PUBLISH_BUCKET=""
+MEDIA_PUBLISH_ENDPOINT=""
+MEDIA_PUBLISH_REGION=""
+MEDIA_PUBLISH_FORCE_PATH_STYLE=false
+MEDIA_PUBLISH_VERIFY_PUBLIC=false
+MEDIA_PUBLISH_ACCESS_KEY_ID=""
+MEDIA_PUBLISH_SECRET_ACCESS_KEY=""
+MEDIA_PUBLISH_SESSION_TOKEN=""
 DATA_LOCATION="data"
 DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
@@ -69,6 +82,15 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 -	ACTIVE_SPACE — Path to the working “space” or directory where app files are "sourced" from.
 -	PUBLIC_LOCATION — Directory under ACTIVE_SPACE that acts as the public root for static assets.
 - PAGES_LOCATION — Subdirectory under ACTIVE_SPACE containing HTML pages that map to routes.
+- MEDIA_LOCATION — Managed media directory relative to PUBLIC_LOCATION (default `media`).
+- MEDIA_CDN_FALLBACK — Redirect a missing local managed-media request to the configured CDN origin.
+- MEDIA_CDN_BASE_URL — HTTPS public delivery origin used only by missing-media fallback.
+- MEDIA_PUBLISH_ENABLED — Enables the explicit publisher command (default false).
+- MEDIA_PUBLISH_PROVIDER — Publisher adapter (default and only v1 value: `s3-compatible`).
+- MEDIA_PUBLISH_BUCKET / MEDIA_PUBLISH_ENDPOINT / MEDIA_PUBLISH_REGION — Remote storage destination.
+- MEDIA_PUBLISH_FORCE_PATH_STYLE — Enable only when the provider requires path-style addressing (default false).
+- MEDIA_PUBLISH_VERIFY_PUBLIC — Verify public CDN delivery after storage verification (default false).
+- MEDIA_PUBLISH_ACCESS_KEY_ID / MEDIA_PUBLISH_SECRET_ACCESS_KEY / MEDIA_PUBLISH_SESSION_TOKEN — Provider-neutral publisher credentials; the session token is optional.
 - DATA_LOCATION — Subdirectory under ACTIVE_SPACE containing DATA files
 - DATA_FILE — JSON file containing data
 - ENABLE_DATA_WATCH — If true, watch for changes and reload DATA_FILE
@@ -86,6 +108,24 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 - WEBSOCKET_HEARTBEAT_MS — Ping interval in ms for dead connection detection (default: `30000`).
 - WEBSOCKET_SESSION_TTL_SECS — TTL in seconds for disconnected sessions (default: `3600`).
 - WEBSOCKET_ALLOWED_ORIGINS — Origin policy: `""` reject all (default), `"*"` allow all, `"same-origin"`, or comma-separated whitelist.
+
+#### Media configuration reference
+
+| Variable | Default | Accepted value and purpose |
+| --- | --- | --- |
+| `MEDIA_LOCATION` | `media` | Safe relative directory beneath `PUBLIC_LOCATION`; absolute paths, traversal, and private `_` segments are rejected. |
+| `MEDIA_CDN_FALLBACK` | `false` | Boolean. Enables post-static-miss CDN redirects for safe media `GET` and `HEAD` requests. |
+| `MEDIA_CDN_BASE_URL` | None | Public HTTPS origin without a path, query, fragment, or embedded credentials. Local HTTP is accepted only for localhost testing. |
+| `MEDIA_PUBLISH_ENABLED` | `false` | Boolean. The publisher refuses to run unless enabled. |
+| `MEDIA_PUBLISH_PROVIDER` | `s3-compatible` | Only v1 choice; covers AWS S3, Cloudflare R2, and compatible storage. |
+| `MEDIA_PUBLISH_BUCKET` | None | Required bucket name. |
+| `MEDIA_PUBLISH_ENDPOINT` | Empty | Empty selects standard AWS S3 endpoint resolution; otherwise set the provider's S3 API origin. |
+| `MEDIA_PUBLISH_REGION` | None | Required AWS region, or `auto` for Cloudflare R2. |
+| `MEDIA_PUBLISH_FORCE_PATH_STYLE` | `false` | Boolean. Enable only when required by the compatible provider. |
+| `MEDIA_PUBLISH_VERIFY_PUBLIC` | `false` | Boolean. Performs an additional public `HEAD` check through `MEDIA_CDN_BASE_URL`. |
+| `MEDIA_PUBLISH_ACCESS_KEY_ID` | None | Required media-publisher access-key ID. |
+| `MEDIA_PUBLISH_SECRET_ACCESS_KEY` | None | Required media-publisher secret key. |
+| `MEDIA_PUBLISH_SESSION_TOKEN` | Empty | Optional temporary-credential token. |
 
 ### DATA.json (Data Cache)
 
@@ -129,14 +169,17 @@ the route cache is enabled. That watcher also reloads DATA.json, regardless of
 `ENABLE_DATA_WATCH`, so there is exactly one DATA observer. Otherwise the
 existing DATA path watcher remains available. `reloadActiveSpace()` and
 `SIGHUP` provide a deployment backstop; there is intentionally no cache-list
-or cache-only-clear administration command.
+or cache-only-clear administration command. Managed media and `.altair`
+publisher state are excluded from watcher events and reconciliation snapshots
+because they do not alter cached HTML.
 
 ### HTTP Errors and Redirects
 
 Altair uses conventional HTTP status semantics. `/` maps to
 `pages/home.html` and returns `200` when it renders successfully. Missing HTML
-pages, stylesheets, scripts, static files, media, and APIs return `404`; they
-are not redirected to the homepage. Unexpected failures return `500` with an
+pages, stylesheets, scripts, static files, and APIs return `404`; they are not
+redirected to the homepage. Missing managed media also returns `404` unless its
+explicit CDN fallback is enabled. Unexpected failures return `500` with an
 opaque reference while internal error detail remains in the server log.
 
 The starter kinetic space includes private `pages/_404.html` and
@@ -174,6 +217,70 @@ handleMissingPage(context, { path }) {
   return this.redirects(307, '/', context);
 }
 ```
+
+### Media Publishing and CDN Delivery
+
+Keep stable provider-neutral references in content:
+
+```html
+<img src="/media/images/team.jpg" alt="Our team">
+```
+
+Save managed files beneath
+`<ACTIVE_SPACE>/<PUBLIC_LOCATION>/<MEDIA_LOCATION>`. Media bytes are ignored by
+Git; the verified manifest at
+`<ACTIVE_SPACE>/.altair/media-publication.json` is retained as shared metadata.
+If a project changes `PUBLIC_LOCATION` or `MEDIA_LOCATION`, it must also update
+the concrete managed-media path in `.gitignore`.
+
+For AWS S3:
+
+```dotenv
+MEDIA_PUBLISH_ENABLED=true
+MEDIA_PUBLISH_PROVIDER="s3-compatible"
+MEDIA_PUBLISH_BUCKET="site-media"
+MEDIA_PUBLISH_ENDPOINT=""
+MEDIA_PUBLISH_REGION="us-east-1"
+MEDIA_PUBLISH_FORCE_PATH_STYLE=false
+MEDIA_PUBLISH_VERIFY_PUBLIC=false
+MEDIA_PUBLISH_ACCESS_KEY_ID=""
+MEDIA_PUBLISH_SECRET_ACCESS_KEY=""
+MEDIA_PUBLISH_SESSION_TOKEN=""
+```
+
+For Cloudflare R2, use the account S3 endpoint, region `auto`, and R2 API
+credentials. Altair does not make a bucket public; configure a public custom
+domain separately and place that origin in `MEDIA_CDN_BASE_URL`.
+
+These credential names belong specifically to Altair media publishing and are
+provider-neutral. They do not reuse the AWS SDK's global credential variables,
+so unrelated AWS or Cloudflare integrations cannot be selected accidentally.
+
+Preview and publish explicitly:
+
+```sh
+pnpm media:publish -- --dry-run
+pnpm media:publish
+pnpm media:publish -- --json
+```
+
+The command accepts common raster images, audio, video, and PDF content
+recognized from its bytes, with a 20 GiB per-file v1 limit. SVG and executable
+or unrecognized content are rejected. Files stream during hashing and upload;
+local files are retained, and a missing local file never deletes its remote
+object.
+
+When fallback is enabled, normal local static serving runs first. A missing,
+safe `GET` or `HEAD` under `/media/` receives a temporary `307` to the same CDN
+path and query. Other missing resources retain normal `404` behavior. For
+maximum production performance, route `/media/*` directly to the object store's
+public delivery domain at Cloudflare or another edge provider so the request
+never reaches Altair.
+
+Publish and verify media before activating HTML or kinetic content that first
+references it. Stable v1 object names use a conservative five-minute cache
+policy; purge a provider cache after replacement when immediate propagation is
+required.
 
 ## Usage
 

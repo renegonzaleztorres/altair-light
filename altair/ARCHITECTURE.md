@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 3.3.0 |
+| Altair version | 3.4.0 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -23,6 +23,7 @@ Minimalist Node.js web server framework for AI-assisted development:
 - **Data cache (DATA.json)** - Environment-based config with hot-reload, variables auto-injected
 - **Route cache** - Optional, bounded in-memory cache for public file-backed HTML
 - **Conventional HTTP errors** - Real `404`/`500` responses and optional private error pages
+- **Media publishing** - Explicit verified S3/R2 publication with stable `/media/...` URLs
 - **On-demand processing** - No build step; templates processed on cache misses
 - **Space-based** - Multiple projects in isolated `spaces/` directories
 - **Small core** - Built-in Node.js primitives and no added cache dependency
@@ -53,6 +54,9 @@ APP_NAME="MyApp"
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
+MEDIA_LOCATION="media"
+MEDIA_CDN_FALLBACK=false
+MEDIA_CDN_BASE_URL=""
 DATA_LOCATION="data"
 DATA_FILE="DATA.json"
 ENABLE_DATA_WATCH=true
@@ -148,6 +152,7 @@ Lib → HTTPServer → WebServer → WebApp
 - `reloadActiveSpace()` - Reloads DATA, refreshes watcher state, and invalidates routes
 - `getDataCache()` - Returns dataCache object
 - `redirects()`, `notFound()`, `serverError()`, `createErrorResponse()`
+- `initializeMediaConfiguration()`, `mediaFallback()`
 
 **WebServer** (`altair/altair.js`): Routing & rendering
 - `this.tarazed` - Template engine instance
@@ -175,6 +180,16 @@ Lib → HTTPServer → WebServer → WebApp
 - `replaceParamTags(s, params)` - Process `@@PARAM_Name` (case-sensitive)
 - **Processing order:** 1) Elements (recursive, with params), 2) Repeat tags, 3) Data tags, 4) Variables
 
+**Media publisher** (`altair/media-publisher.js`, CLI-only):
+- Derives media and manifest paths from the selected active space
+- Streams inspection and SHA-256 hashing, classifies changes, and atomically writes verified state
+- Retains local and remote-only objects; never infers deletion
+
+**S3-compatible adapter** (`altair/media-provider-s3.js`, CLI-only):
+- Dynamically loaded by `media-publisher-cli.js`, never by the HTTP server
+- Uses bounded multipart uploads and verifies remote size, type, and SHA-256 metadata
+- Supports AWS S3 and Cloudflare R2 configuration
+
 ---
 
 ## Request Flow
@@ -191,13 +206,20 @@ lookup → ETag comparison → cached `200`/`304`, or one coalesced
 
 **JS Request:** Route → `renderJS()` → Validate → Read → `replaceElemTags()` → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify (Terser, optional) → `applyGlobalReplacements()` → Send
 
+**Media Request:** static `PUBLIC_LOCATION` lookup → local media response when
+present → optional safe `307` to `MEDIA_CDN_BASE_URL` after a miss → normal
+3.3+ `404` when fallback is disabled or the request is ineligible. Only `GET`
+and `HEAD` under the normalized media namespace can use fallback; queries are
+preserved. Altair never proxies remote media bytes.
+
 ### Error and Redirect Flow
 
 - `/` explicitly renders `pages/home.html` and returns `200` or a cached `304`.
 - Missing, invalid, or private HTML routes call `handleMissingPage()` and return
   `404` by default.
-- Missing CSS, JavaScript, static files, media, and API paths return `404`
-  directly; they do not use the HTML hook.
+- Missing CSS, JavaScript, static files, and API paths return `404` directly;
+  they do not use the HTML hook. Missing managed media returns `404` unless the
+  explicit CDN fallback is enabled.
 - Unexpected renderer or application exceptions reach `serverError()` and
   return `500` with an opaque UUID reference. Internal details are logged but
   never included in the visitor response.
@@ -241,12 +263,90 @@ events, blocks new cache admission while changes settle, safely reloads
 DATA.json, refreshes its in-memory metadata snapshot, and invalidates once per
 accepted batch. Optional reconciliation periodically compares that snapshot;
 the snapshot contains paths and file metadata only and is never persisted.
+The configured `<PUBLIC_LOCATION>/<MEDIA_LOCATION>` subtree and `.altair`
+operational directory are automatically excluded because their changes cannot
+alter cached HTML under the framework contract. This prevents large media
+libraries and publisher lock/manifest writes from consuming snapshot memory or
+invalidating the HTML route cache.
 
 Watcher ownership is exclusive: full-space watching owns DATA observation;
 otherwise `ENABLE_DATA_WATCH=true` uses the specialized path-polling watcher.
 `reloadActiveSpace()` or Unix `SIGHUP` is the deployment backstop. Shutdown
 closes all watchers, timers, in-flight cache state, WebSockets, and HTTP state.
 There is no user-facing cache inspection or cache-only clear command.
+
+## Media Publishing and CDN Delivery
+
+`MEDIA_LOCATION` is a safe relative path beneath `PUBLIC_LOCATION`; the default
+is `media`. Runtime and publisher paths are always derived as:
+
+```text
+media:    <APP_ROOT>/<ACTIVE_SPACE>/<PUBLIC_LOCATION>/<MEDIA_LOCATION>
+manifest: <APP_ROOT>/<ACTIVE_SPACE>/.altair/media-publication.json
+```
+
+Configuration is split between the lightweight HTTP behavior and the
+short-lived publisher:
+
+| Variable | Default | Framework contract |
+| --- | --- | --- |
+| `MEDIA_LOCATION` | `media` | Safe relative directory below `PUBLIC_LOCATION`. |
+| `MEDIA_CDN_FALLBACK` | `false` | Boolean controlling missing-local-media redirects. |
+| `MEDIA_CDN_BASE_URL` | None | Public HTTPS origin; required by enabled fallback or public verification. |
+| `MEDIA_PUBLISH_ENABLED` | `false` | Boolean gate for the explicit publisher command. |
+| `MEDIA_PUBLISH_PROVIDER` | `s3-compatible` | The only version 1 adapter and accepted value. |
+| `MEDIA_PUBLISH_BUCKET` | None | Required publication bucket. |
+| `MEDIA_PUBLISH_ENDPOINT` | Empty | Standard AWS S3 resolution when empty; otherwise an S3-compatible API origin. |
+| `MEDIA_PUBLISH_REGION` | None | Required provider region; R2 uses `auto`. |
+| `MEDIA_PUBLISH_FORCE_PATH_STYLE` | `false` | Boolean for providers requiring path-style addressing. |
+| `MEDIA_PUBLISH_VERIFY_PUBLIC` | `false` | Boolean enabling a post-upload public delivery check. |
+| `MEDIA_PUBLISH_ACCESS_KEY_ID` | None | Required publisher-scoped access-key ID. |
+| `MEDIA_PUBLISH_SECRET_ACCESS_KEY` | None | Required publisher-scoped secret key. |
+| `MEDIA_PUBLISH_SESSION_TOKEN` | Empty | Optional temporary-credential token. |
+
+Small sites need no CDN configuration and use normal static serving. When
+`MEDIA_CDN_FALLBACK=true`, a missing local `GET` or `HEAD` under the configured
+media URL prefix receives a `307` to the validated HTTPS
+`MEDIA_CDN_BASE_URL`, with the normalized path and query preserved and
+`Cache-Control: no-store`. Local files always win. Pages, APIs, non-media
+assets, private segments, malformed paths, traversal, and other methods never
+use the fallback.
+
+Publication is an explicit, short-lived command:
+
+```text
+pnpm media:publish -- --dry-run
+pnpm media:publish
+pnpm media:publish -- --json
+```
+
+The publisher scans regular files without following symbolic links, detects
+allowed media from file signatures, hashes through streams, and compares
+SHA-256 values with the shared manifest. New and edited objects upload;
+unchanged objects skip; manifest-only remote objects remain. A manifest entry
+is updated only after the adapter verifies remote key, byte size, content type,
+and stored SHA-256 metadata. The complete manifest is atomically replaced only
+after a successful batch. Publication never removes local or remote objects.
+Provider-neutral `MEDIA_PUBLISH_*` credentials are scoped to this command and
+passed explicitly to the adapter; global AWS SDK credential variables are not
+used.
+
+The v1 upload policy uses stable object keys and
+`Cache-Control: public, max-age=300, must-revalidate`. Replacements may require
+provider/CDN purging or up to the conservative TTL to settle. Content-hashed
+immutable objects remain future work.
+
+`@aws-sdk/client-s3`, `@aws-sdk/lib-storage`, and `file-type` belong only to the
+publisher path. The provider module is dynamically imported by the CLI. The
+HTTP process retains no provider client, manifest, checksum inventory, upload
+buffer, publisher timer, or publisher watcher. Hashing and uploads stream, and
+multipart concurrency is bounded at two. Version 1 limits an individual file
+to 20 GiB so its fixed multipart policy retains a predictable memory bound.
+
+Production media-heavy sites should route `/media/*` at their edge provider
+directly to a public delivery domain backed by the object store. Redirect
+fallback is the simpler development or small-production option; Altair never
+serves as a media proxy.
 
 ---
 
@@ -316,6 +416,8 @@ spaces/[ACTIVE_SPACE]/
   ├── js/             # scripts.js + _scripts/ partials
   ├── data/           # DATA.json (environment-based config, hot-reload)
   ├── public/         # Static assets (served directly)
+  │   └── media/      # Managed media; bytes ignored by Git
+  ├── .altair/        # Verified media manifest and ignored operational state
   └── templates/      # Optional page templates
 ```
 

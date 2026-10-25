@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Bundled Altair module | 3.3.0 |
+| Bundled Altair module | 3.4.0 |
 | Document owner | This application repository |
 | Last reviewed | 2026-10-25 |
 | Framework architecture | [`altair/ARCHITECTURE.md`](altair/ARCHITECTURE.md) |
@@ -58,9 +58,13 @@ Browser / CDN / reverse proxy
             +---- DATA cache
             +---- optional route cache
             +---- active-space/DATA watcher
+            +---- optional media CDN fallback
             |
             v
      spaces/kinetic             active site content
+
+Explicit operator/agent command (outside HTTP runtime):
+media publisher CLI -> S3-compatible object storage -> CDN/edge delivery
 ```
 
 ## Repository Ownership
@@ -133,8 +137,8 @@ pipeline. Content-hashed assets and immutable asset URLs remain planned work.
 
 The sample `applyGlobalReplacements()` override is commented out. The project
 currently performs no application-level final-response rewriting and uses
-local `/images/`, `/css/`, and `/js/` paths. A future media-CDN integration may
-use a formal asset adapter or a controlled replacement hook.
+local `/images/`, `/css/`, and `/js/` paths. Managed `/media/` references use
+Altair's publisher/fallback contract and are never rewritten to provider URLs.
 
 ## Active Kinetic Space
 
@@ -149,6 +153,8 @@ spaces/kinetic/
 ├── css/                        CSS entry point and partials
 ├── js/                         JavaScript entry point and partials
 ├── public/                     Directly served static media
+│   └── media/                  Managed media bytes excluded from Git
+├── .altair/                    Tracked verified manifest; ignored lock/temp state
 └── templates/                  Private authoring templates
 ```
 
@@ -185,6 +191,41 @@ its output.
 private partials with `@@ELEM_`. They are not part of Route Cache v1. Static
 files beneath `public/` are served directly.
 
+### Managed Media
+
+The base application reserves `public/media/` through `MEDIA_LOCATION=media`.
+HTML and kinetic content use stable `/media/...` references. Media bytes are
+excluded from Git while the directory placeholder remains tracked.
+
+Publishing is disabled by default. A configured site uses the explicit
+`pnpm media:publish` command to stream new or edited objects to AWS S3,
+Cloudflare R2, or another compatible service and records verified state at
+`<ACTIVE_SPACE>/.altair/media-publication.json`. The application publishes
+media before activating content that introduces a reference.
+
+Optional local-miss fallback preserves local static-file precedence and sends
+only safe missing `/media/...` `GET`/`HEAD` requests to a validated CDN origin
+with `307`. Production media-heavy deployments should route `/media/*` at the
+edge so the request bypasses Altair. Altair never proxies remote media bytes.
+
+The project uses the following media environment contract:
+
+| Variable | Default | Project responsibility |
+| --- | --- | --- |
+| `MEDIA_LOCATION` | `media` | Select a safe relative directory beneath `PUBLIC_LOCATION`; update `.gitignore` if it changes. |
+| `MEDIA_CDN_FALLBACK` | `false` | Enable only where missing local media should redirect. |
+| `MEDIA_CDN_BASE_URL` | None | Supply the public HTTPS delivery origin when fallback or public verification is enabled. |
+| `MEDIA_PUBLISH_ENABLED` | `false` | Enable only in an explicit publication environment. |
+| `MEDIA_PUBLISH_PROVIDER` | `s3-compatible` | Version 1 supports this adapter only, for S3, R2, and compatible storage. |
+| `MEDIA_PUBLISH_BUCKET` | None | Supply the deployment's destination bucket. |
+| `MEDIA_PUBLISH_ENDPOINT` | Empty | Leave empty for standard AWS S3 or set the provider's S3 API origin. |
+| `MEDIA_PUBLISH_REGION` | None | Supply the AWS region or `auto` for R2. |
+| `MEDIA_PUBLISH_FORCE_PATH_STYLE` | `false` | Enable only for providers requiring path-style bucket addressing. |
+| `MEDIA_PUBLISH_VERIFY_PUBLIC` | `false` | Optionally verify delivery through `MEDIA_CDN_BASE_URL`. |
+| `MEDIA_PUBLISH_ACCESS_KEY_ID` | None | Required publisher-specific access-key secret. |
+| `MEDIA_PUBLISH_SECRET_ACCESS_KEY` | None | Required publisher-specific secret key. |
+| `MEDIA_PUBLISH_SESSION_TOKEN` | Empty | Optional temporary-credential token. |
+
 ## Data and Configuration
 
 The project uses three configuration layers:
@@ -203,6 +244,12 @@ The checked-in `.env.example` is the public configuration reference. The real
 `.env` is deployment-owned and must not be treated as architecture
 documentation or committed when it contains secrets.
 
+Publisher credentials are environment-owned secrets used only by the explicit
+CLI. They are never stored in DATA, the publication manifest, command output,
+or the browser-facing process. Media-specific, provider-neutral credential
+names are passed explicitly to the adapter so unrelated AWS or Cloudflare
+credentials cannot be selected by an SDK default chain.
+
 ## Route Cache Integration
 
 The bundled Altair module includes an optional process-local route cache. This
@@ -217,6 +264,8 @@ Project-level decisions when enabling it:
   timestamp-token cases bypass shared caching.
 - Full active-space watching should remain enabled for mutable kinetic
   deployments.
+- Managed media and `.altair` publisher state are automatically excluded from
+  route-cache watcher events and reconciliation snapshots.
 - Reconciliation should be enabled only when content may change outside a
   controlled deployment acknowledgement.
 - Each process owns its own cache; multi-instance coordination is not part of
@@ -250,6 +299,11 @@ readiness checks succeed.
 Pages, globals, components, public content, DATA, CSS, JavaScript content, and
 media under the active kinetic space can be deployed without rebuilding or
 restarting the application.
+
+Media publication must complete and verify successfully before kinetic content
+that references newly published objects is activated. Publisher configuration
+changes are environment/application changes and require a new process; running
+the publisher and changing media bytes do not.
 
 When route caching is active, the full-space watcher batches changes, reloads
 DATA safely, and invalidates rendered pages. A controlled directory or symlink
@@ -293,7 +347,8 @@ content, accessibility, and deployment tests under `tests/`.
 The following are deliberately not represented as implemented behavior:
 
 - Content-hashed CSS/JavaScript asset builds.
-- Media-CDN publishing.
+- Responsive media variants, transcoding, hashed immutable media names, and
+  automated remote deletion.
 - Default template escaping.
 - Custom branded 404/500 designs beyond the included base presentations.
 - TypeScript source or a TypeScript build.
