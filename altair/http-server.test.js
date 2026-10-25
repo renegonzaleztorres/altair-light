@@ -101,6 +101,14 @@ for (const scenario of [
 
       const response = await fetch(`http://127.0.0.1:${port}/`);
       assert.equal(response.status, 200);
+
+      const staticResponse = await fetch(`http://127.0.0.1:${port}/images/summer-triangle.png`);
+      assert.equal(staticResponse.status, 200);
+
+      const missingStaticResponse = await fetch(`http://127.0.0.1:${port}/images/not-present.png`);
+      assert.equal(missingStaticResponse.status, 404);
+      assert.equal(missingStaticResponse.headers.get('location'), null);
+      assert.equal(missingStaticResponse.headers.get('cache-control'), 'no-store');
     } finally {
       await stopServer(child);
     }

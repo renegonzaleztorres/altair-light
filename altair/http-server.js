@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
+import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { path, fs, fsSync } from './dependencies.js'
 import { WSServer } from './websocket-server.js';
@@ -18,6 +19,16 @@ class HTTPServer extends Lib {
 
     super();
     this.app = new Hono();
+    this.app.notFound((context) => this.notFound(context, {
+      path: context.req.path,
+      reason: 'route-unmatched',
+      resourceType: 'resource'
+    }));
+    this.app.onError((error, context) => this.serverError(context, error, {
+      path: context.req.path,
+      source: 'unhandled-route',
+      resourceType: this.requestExpectsHTML(context) ? 'html' : 'resource'
+    }));
     this.server = null;
     this.wsServer = null;
     this.activeSpacePath = path.join(this.settings.appRootPath, this.settings.activeSpace);
@@ -431,11 +442,82 @@ class HTTPServer extends Lib {
 
   } // redirects
 
-  // serverError : response
-  serverError(context, errMessage, errRef, p) {
+  // createErrorResponse : conservative response for framework-generated errors
+  createErrorResponse(context, statusCode, body, { html = false, headers = {} } = {}) {
 
-    this.readout(`500 - path: ${p} - message: ${errMessage} - ref: ${errRef}`, 'Server-Error');
-    return context.text('Server Error', 500);
+    const responseHeaders = {
+      'Cache-Control': 'no-store',
+      'Content-Type': html ? 'text/html; charset=UTF-8' : 'text/plain; charset=UTF-8',
+      ...(html ? { 'X-Robots-Tag': 'noindex' } : {}),
+      ...headers
+    };
+    const responseBody = context.req.method.toUpperCase() === 'HEAD' ? null : body;
+    return context.body(responseBody, statusCode, responseHeaders);
+
+  } // createErrorResponse
+
+  // notFound : final safe 404 response (WebServer adds optional HTML error pages)
+  notFound(context, { path: requestPath = context.req.path, reason = 'not-found' } = {}) {
+
+    this.readout(
+      `404 - path: ${this.safeLogValue(requestPath)} - reason: ${this.safeLogValue(reason)}`,
+      'Not-Found'
+    );
+    return this.createErrorResponse(context, 404, 'Not Found');
+
+  } // notFound
+
+  // createErrorReference : opaque identifier safe to expose to a visitor
+  createErrorReference() {
+
+    return randomUUID();
+
+  } // createErrorReference
+
+  requestExpectsHTML(context) {
+
+    const destination = (context.req.header('Sec-Fetch-Dest') || '').toLowerCase();
+    if (destination === 'document' || destination === 'iframe') return true;
+    return (context.req.header('Accept') || '').toLowerCase().includes('text/html');
+
+  } // requestExpectsHTML
+
+  safeLogValue(value) {
+
+    return String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, 1000);
+
+  } // safeLogValue
+
+  // logServerError : record internal detail against an opaque visitor-safe reference
+  logServerError(error, {
+    path: requestPath = '/',
+    source = 'server',
+    reference = this.createErrorReference()
+  } = {}) {
+
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error');
+    const safeMessage = this.safeLogValue(message);
+    const safePath = this.safeLogValue(requestPath || '/');
+    console.error(
+      `[Server-Error] 500 path=${safePath} source=${source} reference=${reference} message=${safeMessage}`
+    );
+    return reference;
+
+  } // logServerError
+
+  // serverError : final safe 500 response (WebServer adds optional HTML error pages)
+  serverError(context, error, {
+    path: requestPath = context.req.path,
+    source = 'server',
+    reference = this.createErrorReference()
+  } = {}) {
+
+    this.logServerError(error, { path: requestPath, source, reference });
+    return this.createErrorResponse(
+      context,
+      500,
+      `Server Error\nReference: ${reference}`
+    );
 
   } // serverError
 

@@ -129,7 +129,51 @@ the route cache is enabled. That watcher also reloads DATA.json, regardless of
 `ENABLE_DATA_WATCH`, so there is exactly one DATA observer. Otherwise the
 existing DATA path watcher remains available. `reloadActiveSpace()` and
 `SIGHUP` provide a deployment backstop; there is intentionally no cache-list
-or cache-only-clear administration command in version 3.2.0.
+or cache-only-clear administration command.
+
+### HTTP Errors and Redirects
+
+Altair uses conventional HTTP status semantics. `/` maps to
+`pages/home.html` and returns `200` when it renders successfully. Missing HTML
+pages, stylesheets, scripts, static files, media, and APIs return `404`; they
+are not redirected to the homepage. Unexpected failures return `500` with an
+opaque reference while internal error detail remains in the server log.
+
+The starter kinetic space includes private `pages/_404.html` and
+`pages/_500.html` files that sites may customize or remove. They use the normal
+Altair template pipeline but retain their `404` or `500` status, bypass route
+caching, and are never public pages. Framework error responses use
+`Cache-Control: no-store`; HTML errors also use `X-Robots-Tag: noindex`.
+
+Redirects are reserved for intentional application routes. Use `307` for a
+temporary method-preserving redirect and `308` for a permanent one:
+
+```js
+additionalRoutes = () => {
+  this.app.get('/old-about', (context) =>
+    this.redirects(308, '/about', context)
+  );
+};
+```
+
+A site that deliberately wants unknown HTML pages sent to `/` can override the
+narrow missing-page hook. The root guard prevents a loop if `home.html` is
+missing; asset and API requests never use this hook:
+
+```js
+handleMissingPage(context, { path }) {
+  if (path === '/') {
+    return this.notFound(context, {
+      path,
+      reason: 'root-page-missing',
+      resourceType: 'html'
+    });
+  }
+
+  context.header('Cache-Control', 'no-store');
+  return this.redirects(307, '/', context);
+}
+```
 
 ## Usage
 

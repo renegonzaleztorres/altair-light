@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Bundled Altair module | 3.2.0 |
+| Bundled Altair module | 3.3.0 |
 | Document owner | This application repository |
-| Last reviewed | 2026-10-24 |
+| Last reviewed | 2026-10-25 |
 | Framework architecture | [`altair/ARCHITECTURE.md`](altair/ARCHITECTURE.md) |
 
 ## Purpose and Scope
@@ -160,6 +160,17 @@ The current site contains one public page:
 / -> spaces/kinetic/pages/home.html
 ```
 
+It also includes private base error presentations:
+
+```text
+404 -> spaces/kinetic/pages/_404.html
+500 -> spaces/kinetic/pages/_500.html
+```
+
+These files use the shared layout, retain their error status, and never become
+ordinary public routes or route-cache entries. `_500.html` may display only the
+opaque `@@VAR_ERRORREFERENCE`, not internal exception details.
+
 The page includes the shared header and footer and obtains its descriptive
 content from `spaces/kinetic/data/altair.json` through `@@DATA_`.
 
@@ -269,6 +280,9 @@ content, accessibility, and deployment tests under `tests/`.
   response privacy, and cache policy.
 - Public content must not rely on underscore-prefixed private files being
   reachable as routes.
+- Altair returns conventional `404`/`500` responses. This project includes
+  private base `pages/_404.html` and `pages/_500.html` presentations without
+  changing those statuses or enabling route caching for them.
 - The current raw template substitution model requires trusted content. Default
   escaping is planned but not yet implemented.
 - Reverse-proxy trust, security headers, narrowed CORS, and structured request
@@ -281,7 +295,7 @@ The following are deliberately not represented as implemented behavior:
 - Content-hashed CSS/JavaScript asset builds.
 - Media-CDN publishing.
 - Default template escaping.
-- Project-specific 404/500 pages and conventional missing-route semantics.
+- Custom branded 404/500 designs beyond the included base presentations.
 - TypeScript source or a TypeScript build.
 - Multi-instance route-cache coordination.
 - Deployment-time content schemas and accessibility validation.

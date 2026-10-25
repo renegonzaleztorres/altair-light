@@ -8,6 +8,13 @@ import HTTPServer from './http-server.js';
 import RenderCache from './render-cache.js';
 import Tarazed from './tarazed.js';
 
+const NON_PAGE_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'ico', 'bmp', 'tif', 'tiff',
+  'woff', 'woff2', 'ttf', 'otf', 'eot', 'mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac',
+  'mp4', 'webm', 'mov', 'm4v', 'pdf', 'zip', 'gz', 'br', 'wasm', 'map', 'json',
+  'xml', 'txt', 'webmanifest'
+]);
+
 class WebServer extends HTTPServer {
 
   constructor() {
@@ -51,6 +58,13 @@ class WebServer extends HTTPServer {
     // HTML pages and "catch all"
     this.app.get('*', (context) => {
       this.readout(`path: ${context.req.path}`, 'Request-CatchAll');
+      if (this.isNonPageRequest(context)) {
+        return this.notFound(context, {
+          path: context.req.path,
+          reason: 'resource-missing',
+          resourceType: 'resource'
+        });
+      }
       return this.renderHTML(context.req.path, context, { coreRoute: true });
     }); // get
 
@@ -69,7 +83,12 @@ class WebServer extends HTTPServer {
   renderHTML = async (p, context, { coreRoute = false, bypassCache = false } = {}) => {
 
     try{
-      if (!this.pageNameValidation(p)) return this.redirects(301, '/', context);
+      if (!this.pageNameValidation(p)) {
+        return this.handleMissingPage(context, {
+          path: context.req.path,
+          reason: this.isPrivatePagePath(p) ? 'page-private' : 'page-invalid'
+        });
+      }
       const eligibility = this.routeCacheEligibility(context, { coreRoute, bypassCache });
       if (!eligibility.eligible) {
         this.renderCache.recordBypass();
@@ -120,9 +139,13 @@ class WebServer extends HTTPServer {
     }
     catch (err) {
       if (err.code === 'ENOENT') // “Error NO ENTry” or “No such file or directory”
-        return this.redirects(301, '/', context);
+        return this.handleMissingPage(context, { path: context.req.path, reason: 'page-missing' });
       else // Other errors
-        return this.serverError(context, err.message, 'renderHTML()', p);
+        return this.serverError(context, err, {
+          path: context.req.path,
+          source: 'renderHTML',
+          resourceType: 'html'
+        });
     } // try
 
     return;
@@ -130,17 +153,22 @@ class WebServer extends HTTPServer {
   } // renderHTML
 
   // renderHTMLBody : render a page without constructing a response
-  renderHTMLBody = async (p) => {
+  renderHTMLBody = async (p, {
+    allowPrivate = false,
+    currentPath = p,
+    routePath = p,
+    variables = {}
+  } = {}) => {
 
-    let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.pagesLocation, (this.trimSlashes(p) + '.html'));
+    let filePath = this.resolvePageFile(p, { allowPrivate });
     let data = await fs.readFile(filePath, 'utf8');
     data = await this.tarazed.replaceElemTags(data);
     data = await this.tarazed.replaceRepeatTags(data);
     data = await this.tarazed.replaceDataTags(data);
     const timeSensitive = /@@VAR_(?:TIMESTAMP|TS)(?![\w-])/i.test(data);
-    data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath: p }));
+    data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath, ...variables }));
     if (this.settings.minify) data = data.replace(/<!--[\s\S]*?-->/g, '');
-    data = await this.applyGlobalReplacements({ content: data, type: 'html', routePath: p });
+    data = await this.applyGlobalReplacements({ content: data, type: 'html', routePath });
     return {
       body: data,
       contentType: 'text/html; charset=UTF-8',
@@ -240,8 +268,10 @@ class WebServer extends HTTPServer {
   renderCSS = async (p, context) => {
 
     try {
-      if (!this.pageNameValidation(p)) return this.redirects(301, '/', context);
-      let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.trimSlashes(p));
+      if (!this.pageNameValidation(p)) {
+        return this.notFound(context, { path: context.req.path, reason: 'stylesheet-invalid', resourceType: 'css' });
+      }
+      let filePath = this.resolveActiveSpaceFile(p);
       let data = await fs.readFile(filePath, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
       data = await this.tarazed.replaceElemTags(data);
       data = await this.tarazed.replaceRepeatTags(data);
@@ -258,9 +288,13 @@ class WebServer extends HTTPServer {
     }
     catch (err) {
       if (err.code === 'ENOENT') // “Error NO ENTry” or “No such file or directory”
-        return this.redirects(301, '/', context);
+        return this.notFound(context, { path: context.req.path, reason: 'stylesheet-missing', resourceType: 'css' });
       else // Other errors
-        return this.serverError(context, err.message, 'renderCSS()', p);
+        return this.serverError(context, err, {
+          path: context.req.path,
+          source: 'renderCSS',
+          resourceType: 'css'
+        });
     } // try
 
     return;
@@ -271,8 +305,10 @@ class WebServer extends HTTPServer {
   renderJS = async (p, context) => {
 
     try{
-      if (!this.pageNameValidation(p)) return this.redirects(301, '/', context);
-      let filePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.trimSlashes(p));
+      if (!this.pageNameValidation(p)) {
+        return this.notFound(context, { path: context.req.path, reason: 'javascript-invalid', resourceType: 'javascript' });
+      }
+      let filePath = this.resolveActiveSpaceFile(p);
       let data = await fs.readFile(filePath, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
       data = await this.tarazed.replaceElemTags(data);
       data = await this.tarazed.replaceRepeatTags(data);
@@ -289,9 +325,13 @@ class WebServer extends HTTPServer {
     }
     catch (err) {
       if (err.code === 'ENOENT') // “Error NO ENTry” or “No such file or directory”
-        return this.redirects(301, '/', context);
+        return this.notFound(context, { path: context.req.path, reason: 'javascript-missing', resourceType: 'javascript' });
       else // Other errors
-        return this.serverError(context, err.message, 'renderJS()', p);
+        return this.serverError(context, err, {
+          path: context.req.path,
+          source: 'renderJS',
+          resourceType: 'javascript'
+        });
     } // try
 
     return;
@@ -307,16 +347,155 @@ class WebServer extends HTTPServer {
 
   } // applyGlobalReplacements
 
+  // handleMissingPage : application extension point for missing HTML pages only
+  handleMissingPage(context, { path: requestPath, reason } = {}) {
+
+    return this.notFound(context, { path: requestPath, reason, resourceType: 'html' });
+
+  } // handleMissingPage
+
+  // notFound : optionally render the private HTML 404 page
+  async notFound(context, options = {}) {
+
+    const requestPath = options.path || context.req.path;
+    const reason = options.reason || 'not-found';
+    this.readout(
+      `404 - path: ${this.safeLogValue(requestPath)} - reason: ${this.safeLogValue(reason)}`,
+      'Not-Found'
+    );
+    if (options.resourceType === 'html') {
+      const response = await this.renderErrorPage(404, context);
+      if (response) return response;
+    }
+    return this.createErrorResponse(context, 404, 'Not Found', {
+      html: options.resourceType === 'html'
+    });
+
+  } // notFound
+
+  // serverError : optionally render the private HTML 500 page without recursion
+  async serverError(context, error, options = {}) {
+
+    const reference = options.reference || this.createErrorReference();
+    this.logServerError(error, {
+      path: options.path || context.req.path,
+      source: options.source || 'server',
+      reference
+    });
+    if (options.resourceType === 'html') {
+      const response = await this.renderErrorPage(500, context, { reference });
+      if (response) return response;
+    }
+    return this.createErrorResponse(context, 500, `Server Error\nReference: ${reference}`, {
+      html: options.resourceType === 'html'
+    });
+
+  } // serverError
+
+  // renderErrorPage : render an optional private error page outside route caching
+  async renderErrorPage(statusCode, context, { reference } = {}) {
+
+    const page = statusCode === 404 ? '_404' : '_500';
+    try {
+      const result = await this.renderHTMLBody(page, {
+        allowPrivate: true,
+        currentPath: '/',
+        routePath: page,
+        variables: reference ? { errorreference: reference } : {}
+      });
+      return this.createErrorResponse(context, statusCode, result.body, { html: true });
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        this.readout(`Unable to render ${page}.html; using built-in fallback`, 'Error-Page');
+      }
+      return null;
+    }
+
+  } // renderErrorPage
+
+  // isNonPageRequest : keep missing assets and API requests out of the HTML renderer
+  isNonPageRequest(context) {
+
+    const requestPath = context.req.path;
+    if (requestPath === '/api' || requestPath.startsWith('/api/')) return true;
+    const destination = (context.req.header('Sec-Fetch-Dest') || '').toLowerCase();
+    if (destination && destination !== 'document' && destination !== 'iframe' && destination !== 'empty') return true;
+    const extension = path.extname(requestPath).slice(1).toLowerCase();
+    if (NON_PAGE_EXTENSIONS.has(extension)) return true;
+    const accept = context.req.header('Accept') || '';
+    return Boolean(accept && !accept.includes('text/html') && !accept.includes('*/*'));
+
+  } // isNonPageRequest
+
+  normalizeContentPath(p) {
+
+    if (typeof p !== 'string' || p.includes('\0') || p.includes('\\')) return null;
+    let decoded;
+    try {
+      decoded = decodeURIComponent(p);
+    } catch (error) {
+      return null;
+    }
+    const normalized = this.trimSlashes(decoded);
+    const segments = normalized.split('/');
+    if (!normalized || segments.some((segment) => !segment || segment === '.' || segment === '..')) return null;
+    return normalized;
+
+  } // normalizeContentPath
+
+  isPrivatePagePath(p) {
+
+    const normalized = this.normalizeContentPath(p);
+    return Boolean(normalized && normalized.split('/').some((segment) => segment.startsWith('_')));
+
+  } // isPrivatePagePath
+
+  resolveContainedFile(root, relativePath) {
+
+    const resolvedRoot = path.resolve(root);
+    const resolvedFile = path.resolve(resolvedRoot, relativePath);
+    if (!resolvedFile.startsWith(`${resolvedRoot}${path.sep}`)) {
+      const error = new Error('Requested path is outside the configured content directory');
+      error.code = 'ALT_INVALID_PATH';
+      throw error;
+    }
+    return resolvedFile;
+
+  } // resolveContainedFile
+
+  resolvePageFile(p, { allowPrivate = false } = {}) {
+
+    const normalized = this.normalizeContentPath(p);
+    const allowedPrivatePage = allowPrivate && (normalized === '_404' || normalized === '_500');
+    if (!normalized || (!allowedPrivatePage && !this.pageNameValidation(normalized))) {
+      const error = new Error('Invalid page path');
+      error.code = 'ALT_INVALID_PATH';
+      throw error;
+    }
+    const pagesRoot = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.pagesLocation);
+    return this.resolveContainedFile(pagesRoot, `${normalized}.html`);
+
+  } // resolvePageFile
+
+  resolveActiveSpaceFile(p) {
+
+    const normalized = this.normalizeContentPath(p);
+    if (!normalized || !this.pageNameValidation(normalized)) {
+      const error = new Error('Invalid asset path');
+      error.code = 'ALT_INVALID_PATH';
+      throw error;
+    }
+    const activeRoot = path.join(this.settings.appRootPath, this.settings.activeSpace);
+    return this.resolveContainedFile(activeRoot, normalized);
+
+  } // resolveActiveSpaceFile
+
   // pageNameValidation : validate the page|script name
   pageNameValidation = (p) => {
 
-    let path = this.trimSlashes(p);
-    let a = path.split('/');
-    let fileName = a[a.length - 1];
-    if (fileName.trim() === '' || fileName.charAt(0) === '_') // File name cannot be empty or start with _
-      return false;
-
-    return true;
+    const normalized = this.normalizeContentPath(p);
+    if (!normalized) return false;
+    return !normalized.split('/').some((segment) => segment.startsWith('_'));
 
   } // pageNameValidation
 
@@ -337,7 +516,8 @@ class WebServer extends HTTPServer {
       ts: this.nowToJSONDateUTC(),
       currentpath: currentPath,
       ...this.additionalVarDefinitions(),
-      ...flattenedDataCache
+      ...flattenedDataCache,
+      ...otherProps
     };
 
   } // varDefinitions

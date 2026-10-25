@@ -136,10 +136,10 @@ test('custom render routes, redirects, and errors never enter the core cache', a
   try {
     assert.equal((await fixture.server.app.request('http://altair.test/custom')).status, 200);
     assert.equal((await fixture.server.app.request('http://altair.test/custom')).status, 200);
-    assert.equal((await fixture.server.app.request('http://altair.test/missing')).status, 301);
+    assert.equal((await fixture.server.app.request('http://altair.test/missing')).status, 404);
     assert.equal((await fixture.server.app.request('http://altair.test/error')).status, 500);
     assert.equal(fixture.server.renderCache.stats().entries, 0);
-    assert.equal(fixture.renders(), 4);
+    assert.equal(fixture.renders(), 6);
   } finally {
     await rm(fixture.appRootPath, { recursive: true, force: true });
   }

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [3.3.0] - 2026-10-25
+
+### Added
+- Added centralized, conservative `404` and `500` responses with `Cache-Control: no-store`, HTML `X-Robots-Tag: noindex`, correct `HEAD` behavior, and opaque server-error references
+- Added optional private `pages/_404.html` and `pages/_500.html` error pages rendered through the normal template pipeline without entering the route cache
+- Added minimalist `_404.html` and `_500.html` starter pages to the base kinetic space
+- Added `handleMissingPage()` as the application extension point for an intentional missing-HTML-page policy
+- Added final Hono not-found and unhandled-error boundaries and framework tests for errors, assets, redirects, path safety, and cache exclusion
+
+### Changed
+- Missing or private HTML pages now return `404` by default instead of redirecting to `/`
+- Missing or invalid CSS, JavaScript, static files, media, APIs, and other non-page resources now return `404` without being treated as HTML pages
+- Unexpected renderer and application failures now return safe `500` responses without exposing internal messages, stack traces, or filesystem paths
+- Page-path validation now rejects traversal and underscore-prefixed segments while retaining dotted page names
+- The root route continues to map `/` to `pages/home.html`; a missing home page now returns `404`
+
 ## [3.2.0] - 2026-10-24
 
 ### Added

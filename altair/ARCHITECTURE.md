@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 3.2.0 |
+| Altair version | 3.3.0 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -22,6 +22,7 @@ Minimalist Node.js web server framework for AI-assisted development:
 - **Template engine (Tarazed)** - Five tag types: `@@ELEM_`, `@@REPEAT_`, `@@PARAM_`, `@@DATA_`, `@@VAR_`
 - **Data cache (DATA.json)** - Environment-based config with hot-reload, variables auto-injected
 - **Route cache** - Optional, bounded in-memory cache for public file-backed HTML
+- **Conventional HTTP errors** - Real `404`/`500` responses and optional private error pages
 - **On-demand processing** - No build step; templates processed on cache misses
 - **Space-based** - Multiple projects in isolated `spaces/` directories
 - **Small core** - Built-in Node.js primitives and no added cache dependency
@@ -146,7 +147,7 @@ Lib → HTTPServer → WebServer → WebApp
 - `loadDataFile()` - Atomically loads DATA.json and returns a structured applied/changed result
 - `reloadActiveSpace()` - Reloads DATA, refreshes watcher state, and invalidates routes
 - `getDataCache()` - Returns dataCache object
-- `redirects()`, `serverError()`
+- `redirects()`, `notFound()`, `serverError()`, `createErrorResponse()`
 
 **WebServer** (`altair/altair.js`): Routing & rendering
 - `this.tarazed` - Template engine instance
@@ -155,7 +156,9 @@ Lib → HTTPServer → WebServer → WebApp
 - `renderHTMLBody(p)` - Process `@@ELEM_`, `@@REPEAT_`, `@@DATA_`, `@@VAR_`, minification, and global replacements
 - `renderCSS(p, context)` - Read CSS, process tags, minify with CleanCSS
 - `renderJS(p, context)` - Read JS, process tags, minify with Terser
-- `pageNameValidation(p)` - Blocks files starting with `_`
+- `pageNameValidation(p)` - Rejects traversal, malformed paths, and underscore-prefixed segments
+- `handleMissingPage()` - Application policy hook for missing HTML pages only
+- `renderErrorPage()` - Optional private `_404.html`/`_500.html` rendering outside the route cache
 - `varDefinitions()` - Returns {year, timestamp, ts, currentpath} + additionalVarDefinitions() + flattened DATA.json vars
 - `additionalVarDefinitions()` - Override for custom variables
 - `additionalRoutes()` - Override for custom routes
@@ -188,7 +191,34 @@ lookup → ETag comparison → cached `200`/`304`, or one coalesced
 
 **JS Request:** Route → `renderJS()` → Validate → Read → `replaceElemTags()` → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify (Terser, optional) → `applyGlobalReplacements()` → Send
 
-**Error Handling:** ENOENT → 301 redirect to `/` | Invalid name → 301 redirect | Other → 500 | Template error → `'UNDEFINED'`
+### Error and Redirect Flow
+
+- `/` explicitly renders `pages/home.html` and returns `200` or a cached `304`.
+- Missing, invalid, or private HTML routes call `handleMissingPage()` and return
+  `404` by default.
+- Missing CSS, JavaScript, static files, media, and API paths return `404`
+  directly; they do not use the HTML hook.
+- Unexpected renderer or application exceptions reach `serverError()` and
+  return `500` with an opaque UUID reference. Internal details are logged but
+  never included in the visitor response.
+- Optional private `pages/_404.html` and `pages/_500.html` files are processed
+  through Tarazed on demand. They retain the error status, are marked
+  `no-store` and `noindex`, and never enter the route cache. If an error page
+  fails, Altair immediately uses a dependency-free fallback without recursion.
+- Error responses omit bodies for `HEAD`. Redirects remain available only
+  through explicit application decisions; `307` and `308` are recommended.
+
+An application may override `handleMissingPage(context, { path, reason })` to
+return a `307` redirect to `/` for unknown HTML pages. Such an override must
+return a real `404` when `path === '/'` to avoid a missing-home loop. The hook
+cannot affect assets, APIs, or server failures.
+
+Path resolution remains contained within the configured active-space or pages
+directory. Every route segment beginning with `_` is private, and malformed or
+traversal paths receive `404` without disclosing whether a file exists.
+
+Tarazed lookup failures inside otherwise valid templates retain their existing
+`'UNDEFINED'` behavior.
 
 ## Route Cache and Active-Space Freshness
 
@@ -216,7 +246,7 @@ Watcher ownership is exclusive: full-space watching owns DATA observation;
 otherwise `ENABLE_DATA_WATCH=true` uses the specialized path-polling watcher.
 `reloadActiveSpace()` or Unix `SIGHUP` is the deployment backstop. Shutdown
 closes all watchers, timers, in-flight cache state, WebSockets, and HTTP state.
-There is no user-facing cache inspection or cache-only clear command in 3.2.0.
+There is no user-facing cache inspection or cache-only clear command.
 
 ---
 
@@ -298,7 +328,9 @@ spaces/[ACTIVE_SPACE]/
 - `pages/home.html` → `/` and `/home`
 - `pages/about.html` → `/about`
 - `pages/blog/post.html` → `/blog/post`
-- Files starting with `_` → 301 redirect (blocked)
+- Any route segment starting with `_` → `404` (private)
+- Optional `pages/_404.html` and `pages/_500.html` → error presentation only,
+  never public `200` routes
 
 ---
 
@@ -712,7 +744,9 @@ Override `additionalRoutes()` in `web-app/web-app.js`; use Hono methods such as 
 
 **Component not rendering:** Verify path relative to `activeSpace`, check `@@PARAM_` names match (case-sensitive), ensure valid JSON in `@@ELEM_`
 
-**301 redirect loop:** Ensure page doesn't start with `_`, check file in `{activeSpace}/pages/`, verify `PAGES_LOCATION` in `.env`
+**Page returns 404:** Ensure no route segment starts with `_`, check the file in `{activeSpace}/pages/`, and verify `PAGES_LOCATION` in `.env`
+
+**Custom error page not shown:** Verify `_404.html` or `_500.html` is directly in `{activeSpace}/pages/` and can render without missing template dependencies
 
 **CSS/JS not minifying:** Check `MINIFY=true` in `.env`, review logs, validate syntax
 
