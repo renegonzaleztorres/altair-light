@@ -10,6 +10,7 @@ import {
   acquirePublicationLock,
   createPublisherConfiguration,
   publishMedia,
+  redactSensitiveValues,
   readManifest
 } from './media-publisher.js';
 
@@ -231,4 +232,16 @@ test('publisher configuration has no legacy aliases and derives custom active-sp
       MEDIA_PUBLISH_BUCKET: 'site-media', MEDIA_PUBLISH_REGION: 'auto'
     }
   }), /MEDIA_PUBLISH_ACCESS_KEY_ID/);
+});
+
+test('credential redaction handles prefix-related and regex-significant secrets', () => {
+  const output = redactSensitiveValues(
+    'short=abc long=abcdef symbols=a.b$c and repeat=abcdef',
+    ['abc', 'abcdef', 'a.b$c']
+  );
+
+  assert.equal(
+    output,
+    'short=[REDACTED] long=[REDACTED] symbols=[REDACTED] and repeat=[REDACTED]'
+  );
 });

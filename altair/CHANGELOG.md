@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [3.4.1] - 2026-10-25
+
+### Fixed
+- Prevented prefix-related `@@VAR_`, `@@ELEM_`, and `@@REPEAT_` tokens from replacing part of longer tokens
+- Made pipe characters terminate `@@DATA_` and `@@REPEAT_` tokens consistently
+- Added bounded recursion and cycle termination for direct and indirect `@@ELEM_` inclusion loops
+- Prevented overlapping media-publisher credentials from bypassing complete CLI error redaction
+
+### Changed
+- Standardized all five Tarazed tag families on complete-token replacement semantics independent of token length or appearance order
+- Added regression coverage for both prefix orders, parameterized elements, include cycles, token boundaries, and overlapping secrets
+
 ## [3.4.0] - 2026-10-25
 
 ### Added

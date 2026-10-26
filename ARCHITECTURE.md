@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Bundled Altair module | 3.4.0 |
+| Bundled Altair module | 3.4.1 |
 | Document owner | This application repository |
 | Last reviewed | 2026-10-25 |
 | Framework architecture | [`altair/ARCHITECTURE.md`](altair/ARCHITECTURE.md) |

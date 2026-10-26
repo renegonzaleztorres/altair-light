@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 3.4.0 |
+| Altair version | 3.4.1 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -178,6 +178,8 @@ Lib → HTTPServer → WebServer → WebApp
 - `replaceDataTags(s)` - Process `@@DATA_path/file.json#key.path?modifiers` (async)
 - `replaceVarTags(s, vD)` - Process `@@VAR_name` (case-insensitive)
 - `replaceParamTags(s, params)` - Process `@@PARAM_Name` (case-sensitive)
+- All tag families replace complete parsed tokens, so prefix-related names are independent of source order
+- Recursive element expansion detects repeated states and terminates after at most 50 passes
 - **Processing order:** 1) Elements (recursive, with params), 2) Repeat tags, 3) Data tags, 4) Variables
 
 **Media publisher** (`altair/media-publisher.js`, CLI-only):
@@ -358,6 +360,7 @@ serves as a media proxy.
 - Optional params: `@@ELEM_path/file.html;{"Key":"value"}`
 - Path relative to `activeSpace`
 - On error: `'UNDEFINED'`
+- Direct or indirect include cycles terminate as `'UNDEFINED'`; nesting is bounded to 50 expansion passes
 
 **`@@VAR_variablename`** - Insert variable (case-insensitive, supports hyphens/underscores)
 - Default: `'UNDEFINED'` if not found
@@ -386,8 +389,13 @@ serves as a media proxy.
 - Built-in params per row: `index` (0-based), `number` (1-based)
 - `data/file.json#items` must resolve to an array; fallback behavior uses the same `behavior` modifiers as `@@DATA_`
 
+Every tag is replaced as one complete parser match. A shorter name such as
+`date` cannot consume the beginning of `dateDisplay`, regardless of which token
+appears first. A pipe (`|`) is a supported visible separator between DATA or
+REPEAT tokens and is not part of either token.
+
 ### Processing Order
-1. `@@ELEM_` tags (recursive, depth-first)
+1. `@@ELEM_` tags (recursive, pass-by-pass)
 2. `@@PARAM_` tags (within each included element)
 3. `@@REPEAT_` tags (array-driven component repetition)
 4. `@@DATA_` tags (after include expansion and repetition)

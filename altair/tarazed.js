@@ -47,44 +47,56 @@ class Tarazed {
 
     if (typeof s !== 'string'){ return s; }
     let strng = s;
-    let matches = null;
-    do { // Replace element tags while there are any to replace
-      matches = strng.match(new RegExp(`${this.escapeRegex(this.elemTagPrefix)}[a-zA-Z0-9_.\\-\\/\\\\]*(?:;\\{.*?\\})?`, 'gi')); // Matches any alphanumeric chars., underscores, periods, forward slashes & backslashes that immediately follow the prefix, and optional ;{...}
-      if (matches && matches.length > 0) {
-        let uniqueMatches = new Set(matches);
-        for (const t of uniqueMatches) {
-          const separatorIndex = t.indexOf(';');
-          let fp = t;
-          let o = '{}';
-          if (separatorIndex >= 0) {
-            fp = t.slice(0, separatorIndex);
-            o = t.slice(separatorIndex + 1);
-          } // if
-          let f = fp.replace(new RegExp(`^${this.escapeRegex(this.elemTagPrefix)}`, 'i'), ''); // Prefix removal
-          f = path.join(this.appPath, f);
-          try {
-            let d = await fs.readFile(f, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
-            if (o) {
-              try{
-                let params = JSON.parse(o);
-                d = this.replaceParamTags(d, params);
-              } catch{}
-            } // if
-            const safeTag = this.escapeRegex(t);
-            strng = strng.replace(new RegExp(safeTag, 'g'), () => d); // Replacement
-          } 
-          catch (err) {
-            if (this.readoutCallback !== null)
-              this.readoutCallback(`Reading file ${f} > ${err}`, 'Error');
-            const safeTag = this.escapeRegex(t);
-            strng = strng.replace(new RegExp(safeTag, 'g'), () => 'UNDEFINED'); // Replacement
-          } // try
-        } // for
-      } // if
-    }
-    while (matches && matches.length > 0);
+    const pattern = new RegExp(`${this.escapeRegex(this.elemTagPrefix)}[a-zA-Z0-9_.\\-\\/\\\\]*(?:;\\{.*?\\})?`, 'gi'); // Matches any alphanumeric chars., underscores, periods, forward slashes & backslashes that immediately follow the prefix, and optional ;{...}
+    const seenTokenStates = new Set();
+    const maxPasses = 50;
 
-    return strng;
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      const matches = strng.match(pattern);
+      if (!matches || matches.length === 0) return strng;
+
+      const uniqueMatches = new Set(matches);
+      const tokenState = [...uniqueMatches].sort().join('\0');
+      if (seenTokenStates.has(tokenState)) {
+        if (this.readoutCallback !== null)
+          this.readoutCallback('Cyclic element inclusion detected', 'Error');
+        return strng.replace(pattern, () => 'UNDEFINED');
+      }
+      seenTokenStates.add(tokenState);
+
+      const replacements = new Map();
+      for (const t of uniqueMatches) {
+        const separatorIndex = t.indexOf(';');
+        let fp = t;
+        let o = '{}';
+        if (separatorIndex >= 0) {
+          fp = t.slice(0, separatorIndex);
+          o = t.slice(separatorIndex + 1);
+        } // if
+        let f = fp.replace(new RegExp(`^${this.escapeRegex(this.elemTagPrefix)}`, 'i'), ''); // Prefix removal
+        f = path.join(this.appPath, f);
+        try {
+          let d = await fs.readFile(f, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
+          if (o) {
+            try{
+              let params = JSON.parse(o);
+              d = this.replaceParamTags(d, params);
+            } catch{}
+          } // if
+          replacements.set(t, d);
+        } catch (err) {
+          if (this.readoutCallback !== null)
+            this.readoutCallback(`Reading file ${f} > ${err}`, 'Error');
+          replacements.set(t, 'UNDEFINED');
+        } // try
+      } // for
+
+      strng = strng.replace(pattern, (token) => replacements.get(token) ?? token);
+    } // for
+
+    if (this.readoutCallback !== null)
+      this.readoutCallback(`Element nesting exceeded ${maxPasses} passes`, 'Error');
+    return strng.replace(pattern, () => 'UNDEFINED');
 
   } // replaceElemTags
 
@@ -223,7 +235,7 @@ class Tarazed {
 
     let strng = s;
     const repeatPrefix = this.escapeRegex(this.repeatTagPrefix);
-    const pattern = new RegExp(`${repeatPrefix}[a-zA-Z0-9_.\\-\\/\\\\]+;[^\\s"'<>;,)\\}]+(?:;\\{.*?\\})?`, 'gi');
+    const pattern = new RegExp(`${repeatPrefix}[a-zA-Z0-9_.\\-\\/\\\\]+;[^\\s"'<>;,)\\}|]+(?:;\\{.*?\\})?`, 'gi');
     const matches = strng.match(pattern);
     if (!matches) {
       return strng;
@@ -232,6 +244,7 @@ class Tarazed {
     const uniqueMatches = new Set(matches);
     const dataFileCache = new Map();
     const templateCache = new Map();
+    const replacements = new Map();
 
     for (const token of uniqueMatches) {
       let replacement = 'UNDEFINED';
@@ -289,11 +302,10 @@ class Tarazed {
         replacement = this.applyDataFallback({ behavior: modifiers.behavior, defaultValue: modifiers.defaultValue, token });
       }
 
-      const safeTag = this.escapeRegex(token);
-      strng = strng.replace(new RegExp(safeTag, 'g'), () => replacement);
+      replacements.set(token, replacement);
     }
 
-    return strng;
+    return strng.replace(pattern, (token) => replacements.get(token) ?? token);
   } // replaceRepeatTags
 
   // parseDataTag : parse @@DATA_ token into parts
@@ -471,7 +483,7 @@ class Tarazed {
     if (typeof s !== 'string') { return s; }
 
     let strng = s;
-    const pattern = new RegExp(`${this.escapeRegex(this.dataTagPrefix)}[^\\s"'<>;,)\\}]+`, 'gi');
+    const pattern = new RegExp(`${this.escapeRegex(this.dataTagPrefix)}[^\\s"'<>;,)\\}|]+`, 'gi');
     const matches = strng.match(pattern);
     if (!matches) {
       return strng;
@@ -546,19 +558,11 @@ class Tarazed {
   // (object) vD : var definitions - all keys should be in lowercase. Underscores and hyphens are allowed
   replaceVarTags = (s, vD = {}) => {
     if (typeof s !== 'string'){ return s; }
-    let strng = s;
-    let matches = strng.match(new RegExp(`${this.escapeRegex(this.varTagPrefix)}[\\w-]+`, 'gi')); // Matches ONLY alphanumeric chars, underscores and hyphens that immediately follow the prefix
-    if (matches) {
-      let uniqueMatches = new Set(matches);
-      for (const t of uniqueMatches) {
-        let k = t.replace(new RegExp(`^${this.escapeRegex(this.varTagPrefix)}`, 'i'), '').toLowerCase(); // Prefix removal
-        let v = vD[k] ?? 'UNDEFINED';
-        let safeTag = this.escapeRegex(t); // Escape special chars in tag for use in RegExp
-        strng = strng.replace(new RegExp(safeTag, 'g'), () => v); // Replacement
-      } // for
-    } // if
-
-    return strng;
+    const pattern = new RegExp(`${this.escapeRegex(this.varTagPrefix)}[\\w-]+`, 'gi'); // Matches ONLY alphanumeric chars, underscores and hyphens that immediately follow the prefix
+    return s.replace(pattern, (token) => {
+      const key = token.replace(new RegExp(`^${this.escapeRegex(this.varTagPrefix)}`, 'i'), '').toLowerCase(); // Prefix removal
+      return vD[key] ?? 'UNDEFINED';
+    });
 
   } // replaceVarTags
 

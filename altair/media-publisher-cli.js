@@ -8,7 +8,8 @@ import {
 import {
   acquirePublicationLock,
   createPublisherConfiguration,
-  publishMedia
+  publishMedia,
+  redactSensitiveValues
 } from './media-publisher.js';
 
 const usage = `Altair media publisher
@@ -25,15 +26,11 @@ Options:
 `;
 
 const redact = (value) => {
-  let output = String(value || 'Media publication failed');
-  for (const name of [
+  const output = redactSensitiveValues(value, [
     'MEDIA_PUBLISH_ACCESS_KEY_ID',
     'MEDIA_PUBLISH_SECRET_ACCESS_KEY',
     'MEDIA_PUBLISH_SESSION_TOKEN'
-  ]) {
-    const secret = process.env[name];
-    if (secret) output = output.replaceAll(secret, '[REDACTED]');
-  }
+  ].map((name) => process.env[name]));
   return output.replace(/https?:\/\/[^\s]*[?&](?:X-Amz-|Signature)[^\s]*/gi, '[REDACTED_URL]');
 };
 

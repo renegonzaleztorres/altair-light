@@ -150,6 +150,15 @@ const hashFile = (filePath) => new Promise((resolve, reject) => {
 const shouldIgnoreFile = (name) =>
   IGNORED_FILE_NAMES.has(name) || name.endsWith('~') || name.endsWith('.swp') || name.endsWith('.tmp');
 
+const redactSensitiveValues = (value, sensitiveValues = []) => {
+  const output = String(value || 'Media publication failed');
+  const values = [...new Set(sensitiveValues.filter((item) => typeof item === 'string' && item.length > 0))]
+    .sort((left, right) => right.length - left.length);
+  if (values.length === 0) return output;
+  const pattern = new RegExp(values.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+  return output.replace(pattern, '[REDACTED]');
+};
+
 async function* walkMedia(directoryPath, relativeDirectory = '') {
   const entries = await fs.readdir(directoryPath, { withFileTypes: true });
   entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -301,6 +310,7 @@ export {
   createPublisherConfiguration,
   inspectMediaFile,
   publishMedia,
+  redactSensitiveValues,
   readManifest,
   writeManifestAtomic
 };
