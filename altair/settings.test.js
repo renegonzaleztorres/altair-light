@@ -18,6 +18,7 @@ const frameworkEnvironmentNames = [
   'ENABLE_DATA_WATCH', 'ENABLE_ROUTE_CACHE', 'ROUTE_CACHE_MAX_ENTRIES',
   'ROUTE_CACHE_WATCH', 'ROUTE_CACHE_QUIET_MS', 'ROUTE_CACHE_MAX_BATCH_MS',
   'ROUTE_CACHE_RECONCILE', 'ROUTE_CACHE_RECONCILE_MS', 'ROUTE_CACHE_DEBUG',
+  'ROUTE_CACHE_IGNORED_COOKIES',
   'MINIFY', 'DEBUG', 'ENABLE_WEBSOCKET', 'WEBSOCKET_PATH',
   'WEBSOCKET_HEARTBEAT_MS', 'WEBSOCKET_SESSION_TTL_SECS',
   'WEBSOCKET_ALLOWED_ORIGINS'
@@ -141,4 +142,26 @@ test('the complete settings tree is immutable', () => {
   assert.equal(Object.isFrozen(settings), true);
   assert.equal(Object.isFrozen(settings.custom), true);
   assert.throws(() => { settings.custom.enabled = false; }, TypeError);
+});
+
+test('ignored route-cache cookies are validated, normalized, and immutable', () => {
+  const settings = createSettings({
+    applicationConfig: { version: 'test' },
+    env: {
+      NODE_ENV: 'development',
+      ROUTE_CACHE_IGNORED_COOKIES: '_ga, _ga_*, _gid, _ga'
+    }
+  });
+  assert.deepEqual(settings.routeCacheIgnoredCookies, ['_ga', '_ga_*', '_gid']);
+  assert.equal(Object.isFrozen(settings.routeCacheIgnoredCookies), true);
+
+  for (const value of ['*', '_ga,,_gid', '_ga_*_suffix', 'session id']) {
+    assert.throws(
+      () => createSettings({
+        applicationConfig: { version: 'test' },
+        env: { NODE_ENV: 'development', ROUTE_CACHE_IGNORED_COOKIES: value }
+      }),
+      /ROUTE_CACHE_IGNORED_COOKIES/
+    );
+  }
 });

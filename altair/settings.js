@@ -46,6 +46,35 @@ const envString = (env, name, fallback, { allowEmpty = false } = {}) => {
   return resolved;
 };
 
+const cookieNamePattern = /^[!#$%&'+\-.^_`|~0-9A-Za-z]+$/;
+
+const ignoredCookiePatterns = (value) => {
+  if (value === undefined || value === '') return [];
+  if (typeof value !== 'string' && !Array.isArray(value)) {
+    throw new Error('ROUTE_CACHE_IGNORED_COOKIES must be a comma-separated string or an array');
+  }
+
+  const values = Array.isArray(value) ? value : value.split(',');
+  if (values.some((pattern) => typeof pattern !== 'string')) {
+    throw new Error('ROUTE_CACHE_IGNORED_COOKIES patterns must be strings');
+  }
+  const patterns = values.map((pattern) => pattern.trim());
+  if (patterns.length === 0 || patterns.some((pattern) => pattern === '')) {
+    throw new Error('ROUTE_CACHE_IGNORED_COOKIES contains an empty pattern');
+  }
+
+  for (const pattern of patterns) {
+    const name = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
+    if (!name || !cookieNamePattern.test(name)) {
+      throw new Error(
+        'ROUTE_CACHE_IGNORED_COOKIES accepts cookie names and trailing-prefix patterns such as _ga_*'
+      );
+    }
+  }
+
+  return [...new Set(patterns)];
+};
+
 const deepFreeze = (value, seen = new WeakSet()) => {
   if (value === null || typeof value !== 'object' || seen.has(value)) return value;
   seen.add(value);
@@ -89,6 +118,9 @@ const createSettings = ({ applicationConfig = {}, env = process.env, appRootPath
     routeCacheReconcile: envBoolean(env, 'ROUTE_CACHE_RECONCILE', applicationConfig.routeCacheReconcile ?? false),
     routeCacheReconcileMs: envInteger(env, 'ROUTE_CACHE_RECONCILE_MS', applicationConfig.routeCacheReconcileMs ?? 30000, 5000, 3600000),
     routeCacheDebug: envBoolean(env, 'ROUTE_CACHE_DEBUG', applicationConfig.routeCacheDebug ?? false),
+    routeCacheIgnoredCookies: ignoredCookiePatterns(
+      env.ROUTE_CACHE_IGNORED_COOKIES ?? applicationConfig.routeCacheIgnoredCookies ?? ''
+    ),
     minify: envBoolean(env, 'MINIFY', applicationConfig.minify ?? false),
     debug: envBoolean(env, 'DEBUG', applicationConfig.debug ?? false),
     enableWebSocket: envBoolean(env, 'ENABLE_WEBSOCKET', applicationConfig.enableWebSocket ?? false),

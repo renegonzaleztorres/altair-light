@@ -72,6 +72,7 @@ ROUTE_CACHE_MAX_BATCH_MS=2000
 ROUTE_CACHE_RECONCILE=false
 ROUTE_CACHE_RECONCILE_MS=30000
 ROUTE_CACHE_DEBUG=false
+ROUTE_CACHE_IGNORED_COOKIES=""
 MINIFY=true
 DEBUG=true
 ENABLE_WEBSOCKET=false
@@ -106,7 +107,8 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 - ROUTE_CACHE_QUIET_MS / ROUTE_CACHE_MAX_BATCH_MS — Filesystem event batch timing
 - ROUTE_CACHE_RECONCILE — Enable optional periodic snapshot comparison
 - ROUTE_CACHE_RECONCILE_MS — Reconciliation interval (default 30000; valid 5000–3600000)
-- ROUTE_CACHE_DEBUG — Emit safe cache diagnostics
+- ROUTE_CACHE_DEBUG — Emit safe hit, miss, store, bypass, coalescing, revalidation, eviction, skipped-admission, and invalidation diagnostics
+- ROUTE_CACHE_IGNORED_COOKIES — Optional comma-separated exact names or trailing-prefix patterns; defaults to empty so all cookies bypass caching
 -	MINIFY — If true, CSS and JS assets will be minified during build or serve.
 - DEBUG — If true, debug output will be printed to the console.
 - ENABLE_WEBSOCKET — If true, start WebSocket server on the HTTP server.
@@ -166,9 +168,11 @@ Environment-based JSON configuration with hot-reload capability:
 The optional Route Cache stores final HTML bodies and ETags in the current
 Node.js process. Entries are created only when requested, bounded by an LRU
 limit, and cleared after accepted active-space changes. Concurrent cold
-requests for the same route share one render. Query strings, cookies,
-authorization, custom routes, errors, redirects, and request-time timestamp
-variables bypass shared storage.
+requests for the same route share one render. Query strings, authorization,
+custom routes, errors, redirects, request-time timestamp variables, and any
+cookie not explicitly ignored by `ROUTE_CACHE_IGNORED_COOKIES` bypass shared
+storage. An empty ignored-cookie setting preserves the conservative policy that
+every cookie bypasses; malformed cookie headers always bypass.
 
 `ROUTE_CACHE_WATCH=true` selects the generalized active-space watcher whenever
 the route cache is enabled. That watcher also reloads DATA.json, regardless of

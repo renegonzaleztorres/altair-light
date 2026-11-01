@@ -68,6 +68,7 @@ class RenderCache {
       const oldestKey = this.entries.keys().next().value;
       this.entries.delete(oldestKey);
       this.counters.evictions += 1;
+      this.readout(`evict path=${oldestKey} entries=${this.entries.size}`);
     }
 
     return true;

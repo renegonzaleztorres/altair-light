@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-11-01
+
+### Added
+- Added validated `ROUTE_CACHE_IGNORED_COOKIES` exact and trailing-prefix patterns so applications can retain public HTML caching for explicitly non-personalizing cookies while unknown and malformed cookies continue to bypass
+
+### Changed
+- Expanded `ROUTE_CACHE_DEBUG` with safe hit, miss, store, bypass, coalescing, `304` revalidation, eviction, skipped-admission, and invalidation diagnostics
+
 ## [4.0.0] - 2026-11-01
 
 ### Added

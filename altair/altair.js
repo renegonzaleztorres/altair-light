@@ -14,6 +14,7 @@ const NON_PAGE_EXTENSIONS = new Set([
   'mp4', 'webm', 'mov', 'm4v', 'pdf', 'zip', 'gz', 'br', 'wasm', 'map', 'json',
   'xml', 'txt', 'webmanifest'
 ]);
+const COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 class WebServer extends HTTPServer {
 
@@ -108,26 +109,34 @@ class WebServer extends HTTPServer {
       }
 
       const cacheKey = this.normalizeRouteCacheKey(p);
+      const cookieDebug = eligibility.ignoredCookies > 0
+        ? ` ignored-cookies=${eligibility.ignoredCookies}`
+        : '';
       let cached = this.renderCache.get(cacheKey);
       if (cached) {
-        this.routeCacheReadout(`hit path=${cacheKey}`);
-        return this.createCachedHTMLResponse(cached, context);
+        this.routeCacheReadout(`hit path=${cacheKey}${cookieDebug}`);
+        return this.createCachedHTMLResponse(cached, context, cacheKey);
       }
-      this.routeCacheReadout(`miss path=${cacheKey}`);
+      this.routeCacheReadout(`miss path=${cacheKey}${cookieDebug}`);
 
       let renderPromise = this.renderCache.getInFlight(cacheKey);
       if (!renderPromise) {
         const generationAtStart = this.renderCache.generation;
         renderPromise = (async () => {
           const result = await this.renderHTMLBody(p);
-          if (!result.cacheable) return result;
+          if (!result.cacheable) {
+            this.routeCacheReadout(`skip-store path=${cacheKey} reason=${result.timeSensitive ? 'time-sensitive' : 'response-policy'}`);
+            return result;
+          }
 
           try {
             result.etag = this.createETag(result.body);
             if (this.routeCacheAdmissionAllowed()) {
               const stored = this.renderCache.set(cacheKey, result, generationAtStart);
               if (stored) this.routeCacheReadout(`stored path=${cacheKey}`);
+              else this.routeCacheReadout(`skip-store path=${cacheKey} reason=cache-state-changed`);
             }
+            else this.routeCacheReadout(`skip-store path=${cacheKey} reason=admission-suspended`);
           } catch (error) {
             this.routeCacheReadout(`ETag unavailable path=${cacheKey}`);
           }
@@ -139,13 +148,13 @@ class WebServer extends HTTPServer {
           () => this.renderCache.deleteInFlight(cacheKey, renderPromise)
         );
       } else {
-        this.routeCacheReadout(`coalesced path=${cacheKey}`);
+        this.routeCacheReadout(`coalesced path=${cacheKey}${cookieDebug}`);
       }
 
       const result = await renderPromise;
       if (!result.cacheable || !result.etag) return this.createHTMLResponse(result.body, context);
       cached = { body: result.body, etag: result.etag };
-      return this.createCachedHTMLResponse(cached, context);
+      return this.createCachedHTMLResponse(cached, context, cacheKey);
     }
     catch (err) {
       if (err.code === 'ENOENT') // “Error NO ENTry” or “No such file or directory”
@@ -197,16 +206,41 @@ class WebServer extends HTTPServer {
     if (method !== 'GET' && method !== 'HEAD') return { eligible: false, reason: 'method' };
     if (context.req.url.includes('?')) return { eligible: false, reason: 'query-present' };
     if (context.req.header('Authorization')) return { eligible: false, reason: 'authorization' };
-    if (context.req.header('Cookie')) return { eligible: false, reason: 'cookie' };
+    const cookieEligibility = this.routeCacheCookieEligibility(context.req.header('Cookie'));
+    if (!cookieEligibility.eligible) return cookieEligibility;
     const responseHeaders = context.res?.headers;
     const cacheControl = responseHeaders?.get('Cache-Control')?.toLowerCase() || '';
     if (responseHeaders?.has('Set-Cookie')) return { eligible: false, reason: 'set-cookie' };
     if (cacheControl.includes('private')) return { eligible: false, reason: 'private' };
     if (cacheControl.includes('no-store')) return { eligible: false, reason: 'no-store' };
     if (!this.routeCacheLookupAllowed()) return { eligible: false, reason: 'watcher-uncertain' };
-    return { eligible: true };
+    return { eligible: true, ignoredCookies: cookieEligibility.ignoredCookies };
 
   } // routeCacheEligibility
+
+  routeCacheCookieEligibility(cookieHeader) {
+
+    if (!cookieHeader) return { eligible: true, ignoredCookies: 0 };
+    const patterns = this.settings.routeCacheIgnoredCookies || [];
+    let ignoredCookies = 0;
+
+    for (const pair of cookieHeader.split(';')) {
+      const separator = pair.indexOf('=');
+      const name = separator > 0 ? pair.slice(0, separator).trim() : '';
+      if (!name || !COOKIE_NAME_PATTERN.test(name)) {
+        return { eligible: false, reason: 'cookie-malformed' };
+      }
+
+      const ignored = patterns.some((pattern) => pattern.endsWith('*')
+        ? name.startsWith(pattern.slice(0, -1))
+        : name === pattern);
+      if (!ignored) return { eligible: false, reason: 'cookie' };
+      ignoredCookies += 1;
+    }
+
+    return { eligible: true, ignoredCookies };
+
+  } // routeCacheCookieEligibility
 
   normalizeRouteCacheKey(p) {
 
@@ -241,7 +275,7 @@ class WebServer extends HTTPServer {
 
   } // createHTMLResponse
 
-  createCachedHTMLResponse(entry, context) {
+  createCachedHTMLResponse(entry, context, cacheKey = this.normalizeRouteCacheKey(context.req.path)) {
 
     const headers = {
       'Content-Type': 'text/html; charset=UTF-8',
@@ -249,6 +283,7 @@ class WebServer extends HTTPServer {
       'Cache-Control': 'no-cache'
     };
     if (this.etagMatches(context.req.header('If-None-Match'), entry.etag)) {
+      this.routeCacheReadout(`revalidated path=${cacheKey} status=304`);
       return context.body(null, 304, headers);
     }
     if (context.req.method.toUpperCase() === 'HEAD') return context.body(null, 200, headers);

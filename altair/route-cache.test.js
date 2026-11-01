@@ -7,7 +7,7 @@ import test from 'node:test';
 import WebServer from './altair.js';
 import { createTestSettings } from './test/helpers.js';
 
-const createServer = async ({ customize } = {}) => {
+const createServer = async ({ customize, settings = {} } = {}) => {
   const appRootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-route-cache-'));
   const activeSpace = 'kinetic';
   const activePath = path.join(appRootPath, activeSpace);
@@ -25,7 +25,8 @@ const createServer = async ({ customize } = {}) => {
     routeCacheMaxEntries: 20,
     routeCacheDebug: false,
     debug: false,
-    minify: false
+    minify: false,
+    ...settings
   }) });
   server.dataFilePath = path.join(activePath, 'DATA.json');
 
@@ -66,6 +67,83 @@ test('core HTML routes populate lazily, return ETags, and revalidate with 304', 
     assert.equal(revalidated.status, 304);
     assert.equal(await revalidated.text(), '');
     assert.equal(fixture.renders(), 1);
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('route-cache debug reports request decisions and cache lifecycle events', async () => {
+  const messages = [];
+  const fixture = await createServer({
+    settings: { routeCacheDebug: true, routeCacheMaxEntries: 1 },
+    customize: (server) => {
+      server.routeCacheReadout = (message) => messages.push(message);
+    }
+  });
+
+  try {
+    const first = await fixture.server.app.request('http://altair.test/');
+    const etag = first.headers.get('etag');
+    await fixture.server.app.request('http://altair.test/');
+    await fixture.server.app.request('http://altair.test/', {
+      headers: { 'If-None-Match': etag }
+    });
+    await fixture.server.app.request('http://altair.test/about');
+    await fixture.server.app.request('http://altair.test/about?ref=test');
+    await fixture.server.app.request('http://altair.test/timed');
+    fixture.server.invalidateRouteCache('debug-test');
+
+    assert.ok(messages.includes('miss path=/'));
+    assert.ok(messages.includes('stored path=/'));
+    assert.ok(messages.includes('hit path=/'));
+    assert.ok(messages.includes('revalidated path=/ status=304'));
+    assert.ok(messages.includes('evict path=/ entries=1'));
+    assert.ok(messages.includes('bypass path=/about reason=query-present'));
+    assert.ok(messages.includes('skip-store path=/timed reason=time-sensitive'));
+    assert.ok(messages.some((message) => message.startsWith('invalidate reason=debug-test entries=')));
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('configured analytics cookies preserve caching while unknown cookies bypass it', async () => {
+  const messages = [];
+  const fixture = await createServer({
+    settings: {
+      routeCacheDebug: true,
+      routeCacheIgnoredCookies: ['_ga', '_ga_*', '_gid']
+    },
+    customize: (server) => {
+      server.routeCacheReadout = (message) => messages.push(message);
+    }
+  });
+
+  try {
+    const analyticsCookies = { Cookie: '_ga=GA1.1.123; _ga_ABC=GS1.1.456; _gid=GA1.2.789' };
+    assert.equal((await fixture.server.app.request('http://altair.test/about', {
+      headers: analyticsCookies
+    })).status, 200);
+    assert.equal(fixture.renders(), 1);
+
+    assert.equal((await fixture.server.app.request('http://altair.test/about', {
+      headers: analyticsCookies
+    })).status, 200);
+    assert.equal(fixture.renders(), 1);
+
+    assert.equal((await fixture.server.app.request('http://altair.test/about', {
+      headers: { Cookie: '_ga=GA1.1.123; sessionId=private' }
+    })).status, 200);
+    assert.equal(fixture.renders(), 2);
+
+    assert.equal((await fixture.server.app.request('http://altair.test/about', {
+      headers: { Cookie: 'malformed' }
+    })).status, 200);
+    assert.equal(fixture.renders(), 3);
+
+    assert.ok(messages.includes('miss path=/about ignored-cookies=3'));
+    assert.ok(messages.includes('hit path=/about ignored-cookies=3'));
+    assert.ok(messages.includes('bypass path=/about reason=cookie'));
+    assert.ok(messages.includes('bypass path=/about reason=cookie-malformed'));
   } finally {
     await rm(fixture.appRootPath, { recursive: true, force: true });
   }

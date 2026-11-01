@@ -139,6 +139,7 @@ ROUTE_CACHE_MAX_BATCH_MS=2000
 ROUTE_CACHE_RECONCILE=false
 ROUTE_CACHE_RECONCILE_MS=30000
 ROUTE_CACHE_DEBUG=false
+ROUTE_CACHE_IGNORED_COOKIES=""
 MINIFY=true
 DEBUG=true
 ENABLE_WEBSOCKET=false
@@ -169,7 +170,8 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 - `ROUTE_CACHE_QUIET_MS` / `ROUTE_CACHE_MAX_BATCH_MS` — Control how rapid deployment changes are grouped
 - `ROUTE_CACHE_RECONCILE` — Enables an optional recurring metadata scan to catch missed filesystem events
 - `ROUTE_CACHE_RECONCILE_MS` — Reconciliation interval, from 5 seconds to 1 hour; defaults to 30 seconds
-- `ROUTE_CACHE_DEBUG` — Enables cache diagnostics without logging response or private request data
+- `ROUTE_CACHE_DEBUG` — Logs safe route-cache hits, misses, stores, bypasses, coalescing, revalidation, eviction, skipped admission, and invalidation without logging response or private request data
+- `ROUTE_CACHE_IGNORED_COOKIES` — Optional comma-separated exact names or trailing-prefix patterns that do not make an otherwise public page bypass caching; defaults to empty, so every cookie bypasses
 - `MINIFY` — If `true`, CSS and JS assets will be minified during build or serve
 - `DEBUG` — If `true`, debug output will be printed to the console
 - `ENABLE_WEBSOCKET` — If `true`, start WebSocket server on the HTTP server

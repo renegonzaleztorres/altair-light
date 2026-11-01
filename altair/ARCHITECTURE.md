@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 4.0.0 |
+| Altair version | 4.1.0 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -70,6 +70,7 @@ ROUTE_CACHE_MAX_BATCH_MS=2000
 ROUTE_CACHE_RECONCILE=false
 ROUTE_CACHE_RECONCILE_MS=30000
 ROUTE_CACHE_DEBUG=false
+ROUTE_CACHE_IGNORED_COOKIES=""
 MINIFY=false
 DEBUG=true
 ```
@@ -255,11 +256,19 @@ generation prevents a render begun before invalidation from repopulating the
 cache. The first lookup after the local New Year boundary invalidates once so
 `@@VAR_YEAR` remains current.
 
-Only core file-backed `GET`/`HEAD` pages without a query delimiter, Cookie, or
-Authorization header are eligible. Timestamp variables, custom routes,
-redirects, and errors bypass shared storage. Cached responses use
+Only core file-backed `GET`/`HEAD` pages without a query delimiter or
+Authorization header are eligible. A Cookie header is eligible only when every
+cookie name matches an exact name or trailing-prefix pattern configured by
+`ROUTE_CACHE_IGNORED_COOKIES`; its empty default makes every cookie bypass.
+Unknown or malformed cookies, timestamp variables, custom routes, redirects,
+and errors bypass shared storage. Cookie values are never inspected beyond
+parsing their names and are never logged. Cached responses use
 `Cache-Control: no-cache` and an ETag, so clients may store them but must
-revalidate before reuse.
+revalidate before reuse. With `ROUTE_CACHE_DEBUG=true`, Altair emits concise
+cache decisions for hits, misses, stores, bypasses, coalesced requests, `304`
+revalidation, eviction, skipped admission, and invalidation. Messages include
+route paths and cache reasons but never response bodies, cookies,
+authorization values, or ETags. The diagnostics are silent by default.
 
 `SpaceWatcher` (`altair/space-watcher.js`) observes the complete active space
 when both route caching and `ROUTE_CACHE_WATCH` are enabled. It batches rapid
@@ -516,6 +525,7 @@ ROUTE_CACHE_MAX_BATCH_MS=2000
 ROUTE_CACHE_RECONCILE=false
 ROUTE_CACHE_RECONCILE_MS=30000
 ROUTE_CACHE_DEBUG=false
+ROUTE_CACHE_IGNORED_COOKIES=""
 MINIFY=true
 DEBUG=true
 ```
