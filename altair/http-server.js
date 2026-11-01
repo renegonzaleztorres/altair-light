@@ -12,13 +12,14 @@ import { path, fs, fsSync } from './dependencies.js'
 import { WSServer } from './websocket-server.js';
 import Lib from './lib.js';
 import { createMediaRedirectUrl, mediaRequestTarget, resolveMediaConfiguration } from './media-config.js';
+import { loadSettings } from './settings.js';
 import SpaceWatcher from './space-watcher.js';
 
 class HTTPServer extends Lib {
 
-  constructor(){
+  constructor(options = {}){
 
-    super();
+    super(options);
     this.app = new Hono();
     this.app.notFound((context) => this.notFound(context, {
       path: context.req.path,
@@ -32,17 +33,15 @@ class HTTPServer extends Lib {
     }));
     this.server = null;
     this.wsServer = null;
-    this.activeSpacePath = path.join(this.settings.appRootPath, this.settings.activeSpace);
+    this.activeSpacePath = null;
     this.mediaConfiguration = null;
-    
-    // Construct public path (scoped to active space)
-    this.publicPath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.publicLocation);
+    this.publicPath = null;
+    this.dataFilePath = null;
+    this.runtimeSettingsInitialized = false;
+    this.settingsReadyNotified = false;
 
     // Initialize data cache to empty object (backwards compatible)
     this.dataCache = {};
-
-    // Construct data file path (scoped to active space)
-    this.dataFilePath = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.dataLocation, this.settings.dataFile);
 
     // Track if file watching is active
     this.dataFileWatcher = null;
@@ -70,7 +69,43 @@ class HTTPServer extends Lib {
     this.shutdownPromise = null;
     this.signalHandlers = null;
 
+    if (this.settings) this.initializeRuntimeSettings();
+
   } // constructor
+
+  initializeRuntimeSettings() {
+
+    if (this.runtimeSettingsInitialized) return;
+    this.activeSpacePath = path.join(this.settings.appRootPath, this.settings.activeSpace);
+    this.publicPath = path.join(this.activeSpacePath, this.settings.publicLocation);
+    this.dataFilePath = path.join(this.activeSpacePath, this.settings.dataLocation, this.settings.dataFile);
+    this.runtimeSettingsInitialized = true;
+
+  } // initializeRuntimeSettings
+
+  initializeApplication() {
+
+    return;
+
+  } // initializeApplication
+
+  onSettingsReady() {
+
+    return;
+
+  } // onSettingsReady
+
+  initialize() {
+
+    if (!this.settings) this.settings = loadSettings();
+    this.initializeRuntimeSettings();
+    this.initializeApplication();
+    if (!this.settingsReadyNotified) {
+      this.onSettingsReady();
+      this.settingsReadyNotified = true;
+    }
+
+  } // initialize
 
   // loadDataFile : load data from JSON file into memory cache
   // Atomic swap: builds new cache first, only updates dataCache if parsing succeeds
@@ -263,11 +298,8 @@ class HTTPServer extends Lib {
     if (this.settings.enableRouteCache && this.settings.routeCacheWatch) {
       this.stopWatchingDataFile();
       this.spaceWatcher = new SpaceWatcher({
+        settings: this.settings,
         rootPath: this.activeSpacePath,
-        quietMs: this.settings.routeCacheQuietMs,
-        maxBatchMs: this.settings.routeCacheMaxBatchMs,
-        reconcileEnabled: this.settings.routeCacheReconcile,
-        reconcileMs: this.settings.routeCacheReconcileMs,
         ignoredPaths: [this.mediaConfiguration.mediaRelativePath, '.altair'],
         onDirty: () => {},
         onUncertain: () => {
@@ -366,54 +398,72 @@ class HTTPServer extends Lib {
   // start : start app
   async start() {
 
-    this.initializeMediaConfiguration();
+    try {
+      this.initialize();
+      this.initializeMediaConfiguration();
 
-    // Load data before starting server
-    const startupDataResult = await this.loadDataFile();
-    if (!startupDataResult.applied && this.settings.enableRouteCache) {
-      this.routeCacheAdmissionSuspended = true;
-    }
+      // Load data before starting server
+      const startupDataResult = await this.loadDataFile();
+      if (!startupDataResult.applied && this.settings.enableRouteCache) {
+        this.routeCacheAdmissionSuspended = true;
+      }
 
-    this.app.use('*', cors());
-    this.app.use('*', serveStatic({ root: this.publicPath }));
-    this.app.use('*', (context, next) => this.mediaFallback(context) || next());
+      this.app.use('*', cors());
+      this.app.use('*', serveStatic({ root: this.publicPath }));
+      this.app.use('*', (context, next) => this.mediaFallback(context) || next());
 
-    // Routes
-    this.routes();
+      // Routes
+      this.routes();
 
-    // Start watching data file for changes (if enabled)
-    await this.startChangeObservation();
+      // Start watching data file for changes (if enabled)
+      await this.startChangeObservation();
 
-    // Start listening
-    const port = Number(process.env.PORT || this.settings.localPort);
-    const hostname = process.env.HOST || '127.0.0.1';
-    this.server = serve({ fetch: this.app.fetch, port, hostname }, (info) => {
-      this.readout(`${this.settings.appName} ${this.settings.nodeEnv} server listening on ${hostname}:${info.port}`, 'Start');
-      this.readout(`${this.settings.activeSpace}`, 'Space');
-    }); // serve
-
-    // Initialize WebSocket server if enabled
-    if (this.settings.enableWebSocket) {
-      this.wsServer = new WSServer(this.server, {
-        path: this.settings.webSocketPath,
-        heartbeatInterval: this.settings.webSocketHeartbeatMs,
-        sessionTTL: this.settings.webSocketSessionTtlSecs * 1000,
-        allowedOrigins: this.settings.webSocketAllowedOrigins,
-        onMessage: (sessionId, message, ws) => this.onWsMessage(sessionId, message, ws)
+      // Start listening and do not resolve until the socket is ready.
+      await new Promise((resolve, reject) => {
+        const onError = (error) => reject(error);
+        this.server = serve({
+          fetch: this.app.fetch,
+          port: this.settings.port,
+          hostname: this.settings.host
+        }, (info) => {
+          this.server.off('error', onError);
+          this.readout(
+            `${this.settings.appName} ${this.settings.nodeEnv} server listening on ${this.settings.host}:${info.port}`,
+            'Start'
+          );
+          this.readout(`${this.settings.activeSpace}`, 'Space');
+          resolve();
+        });
+        this.server.once('error', onError);
       });
-      this.readout(`WebSocket server initialized on ${this.settings.webSocketPath}`, 'WebSocket');
+
+      // Initialize WebSocket server if enabled
+      if (this.settings.enableWebSocket) {
+        this.wsServer = new WSServer(this.server, {
+          settings: this.settings,
+          path: this.settings.webSocketPath,
+          heartbeatInterval: this.settings.webSocketHeartbeatMs,
+          sessionTTL: this.settings.webSocketSessionTtlSecs * 1000,
+          allowedOrigins: this.settings.webSocketAllowedOrigins,
+          onMessage: (sessionId, message, ws) => this.onWsMessage(sessionId, message, ws)
+        });
+        this.readout(`WebSocket server initialized on ${this.settings.webSocketPath}`, 'WebSocket');
+      }
+
+      // Register cleanup handlers for graceful shutdown
+      this.signalHandlers = {
+        shutdown: () => void this.shutdown({ exitProcess: true }),
+        reload: () => void this.reloadActiveSpace({ reason: 'sighup' })
+      };
+      process.on('SIGTERM', this.signalHandlers.shutdown);
+      process.on('SIGINT', this.signalHandlers.shutdown);
+      process.on('SIGHUP', this.signalHandlers.reload);
+
+      return this;
+    } catch (error) {
+      await this.shutdown();
+      throw error;
     }
-
-    // Register cleanup handlers for graceful shutdown
-    this.signalHandlers = {
-      shutdown: () => void this.shutdown({ exitProcess: true }),
-      reload: () => void this.reloadActiveSpace({ reason: 'sighup' })
-    };
-    process.on('SIGTERM', this.signalHandlers.shutdown);
-    process.on('SIGINT', this.signalHandlers.shutdown);
-    process.on('SIGHUP', this.signalHandlers.reload);
-
-    return;
 
   } // start
 
@@ -446,8 +496,13 @@ class HTTPServer extends Lib {
         resolve();
         if (exitProcess) process.exit(0);
       };
-      if (this.server) this.server.close(finish);
-      else finish();
+      if (this.server) {
+        try {
+          this.server.close(finish);
+        } catch {
+          finish();
+        }
+      } else finish();
     });
     return this.shutdownPromise;
 

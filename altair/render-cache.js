@@ -4,7 +4,9 @@
 
 class RenderCache {
 
-  constructor({ enabled = false, maxEntries = 250, now = Date.now, readoutCallback = null } = {}) {
+  constructor({ settings = null, enabled, maxEntries, now = Date.now, readoutCallback = null } = {}) {
+    enabled ??= settings?.enableRouteCache ?? false;
+    maxEntries ??= settings?.routeCacheMaxEntries ?? 250;
     this.enabled = enabled === true;
     this.maxEntries = Math.max(1, Number(maxEntries) || 250);
     this.now = now;

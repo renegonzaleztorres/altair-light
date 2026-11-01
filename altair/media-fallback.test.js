@@ -6,8 +6,7 @@ import test from 'node:test';
 import { serveStatic } from '@hono/node-server/serve-static';
 
 import WebServer from './altair.js';
-import RenderCache from './render-cache.js';
-import Tarazed from './tarazed.js';
+import { createTestSettings } from './test/helpers.js';
 
 const createServer = async ({ fallback = true, baseUrl = 'https://media.example.com' } = {}) => {
   const appRootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-media-fallback-'));
@@ -18,8 +17,7 @@ const createServer = async ({ fallback = true, baseUrl = 'https://media.example.
   await writeFile(path.join(activePath, 'public', 'media', 'images', 'local.png'), 'local-media');
   await writeFile(path.join(activePath, 'pages', 'home.html'), '<h1>Home</h1>');
 
-  const server = new WebServer();
-  Object.assign(server.settings, {
+  const server = new WebServer({ settings: createTestSettings({
     appRootPath,
     activeSpace,
     publicLocation: 'public',
@@ -30,9 +28,7 @@ const createServer = async ({ fallback = true, baseUrl = 'https://media.example.
     enableRouteCache: false,
     debug: false,
     minify: false
-  });
-  server.tarazed = new Tarazed({ appPath: activePath, readoutCallback: server.readout });
-  server.renderCache = new RenderCache({ enabled: false, maxEntries: 1 });
+  }) });
   server.initializeMediaConfiguration();
   server.app.use('*', serveStatic({ root: server.publicPath }));
   server.app.use('*', (context, next) => server.mediaFallback(context) || next());
@@ -78,12 +74,15 @@ test('disabled fallback, non-media paths, unsupported methods, and unsafe paths 
 });
 
 test('invalid fallback configuration is rejected before server startup', async () => {
-  const fixture = await createServer({ fallback: false });
+  const appRootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-media-invalid-'));
   try {
-    fixture.server.settings.mediaCdnFallback = true;
-    fixture.server.settings.mediaCdnBaseUrl = 'http://media.example.com';
-    assert.throws(() => fixture.server.initializeMediaConfiguration(), /must use HTTPS/);
+    const server = new WebServer({ settings: createTestSettings({
+      appRootPath,
+      mediaCdnFallback: true,
+      mediaCdnBaseUrl: 'http://media.example.com'
+    }) });
+    assert.throws(() => server.initializeMediaConfiguration(), /must use HTTPS/);
   } finally {
-    await rm(fixture.appRootPath, { recursive: true, force: true });
+    await rm(appRootPath, { recursive: true, force: true });
   }
 });

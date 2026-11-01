@@ -11,7 +11,7 @@ test('HTTP runtime import graph excludes publisher and provider packages', async
     'altair.js',
     'http-server.js',
     'lib.js',
-    'constants.js',
+    'settings.js',
     'media-config.js'
   ];
   const content = (await Promise.all(

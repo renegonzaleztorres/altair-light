@@ -2,14 +2,13 @@
  * Lib
  */
 
-import * as __CONSTANTS from './constants.js';
-const { __APP_NAME: appName, __NODE_ENV: nodeEnv, __ACTIVE_SPACE: activeSpace, __PUBLIC_LOCATION: publicLocation, __PAGES_LOCATION: pagesLocation, __MEDIA_LOCATION: mediaLocation, __MEDIA_CDN_FALLBACK: mediaCdnFallback, __MEDIA_CDN_BASE_URL: mediaCdnBaseUrl, __DATA_LOCATION: dataLocation, __DATA_FILE: dataFile, __ENABLE_DATA_WATCH: enableDataWatch, __ENABLE_ROUTE_CACHE: enableRouteCache, __ROUTE_CACHE_MAX_ENTRIES: routeCacheMaxEntries, __ROUTE_CACHE_WATCH: routeCacheWatch, __ROUTE_CACHE_QUIET_MS: routeCacheQuietMs, __ROUTE_CACHE_MAX_BATCH_MS: routeCacheMaxBatchMs, __ROUTE_CACHE_RECONCILE: routeCacheReconcile, __ROUTE_CACHE_RECONCILE_MS: routeCacheReconcileMs, __ROUTE_CACHE_DEBUG: routeCacheDebug, __MINIFY: minify, __DEBUG: debug, __appRootPath: appRootPath, __dirName: dirName, __localPort: localPort, __version: version, __ENABLE_WEBSOCKET: enableWebSocket, __WEBSOCKET_PATH: webSocketPath, __WEBSOCKET_HEARTBEAT_MS: webSocketHeartbeatMs, __WEBSOCKET_SESSION_TTL_SECS: webSocketSessionTtlSecs, __WEBSOCKET_ALLOWED_ORIGINS: webSocketAllowedOrigins } = __CONSTANTS;
+import { deepFreeze } from './settings.js';
 
 class Lib {
 
-  constructor() {
+  constructor({ settings = null } = {}) {
 
-    this.settings = { appName, nodeEnv, activeSpace, publicLocation, pagesLocation, mediaLocation, mediaCdnFallback, mediaCdnBaseUrl, dataLocation, dataFile, enableDataWatch, enableRouteCache, routeCacheMaxEntries, routeCacheWatch, routeCacheQuietMs, routeCacheMaxBatchMs, routeCacheReconcile, routeCacheReconcileMs, routeCacheDebug, debug, minify, appRootPath, dirName, localPort, version, enableWebSocket, webSocketPath, webSocketHeartbeatMs, webSocketSessionTtlSecs, webSocketAllowedOrigins };
+    this.settings = settings ? deepFreeze(settings) : null;
 
   } // constructor
 
@@ -23,7 +22,7 @@ class Lib {
   // readout : log
   readout = (msg, tag) => {
 
-    if (this.settings.debug)
+    if (this.settings?.debug)
       console.log(`[${tag}] ${msg}`);
 
     return;

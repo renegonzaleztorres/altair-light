@@ -5,8 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import WebServer from './altair.js';
-import RenderCache from './render-cache.js';
-import Tarazed from './tarazed.js';
+import { createTestSettings } from './test/helpers.js';
 
 const createServer = async ({ customize } = {}) => {
   const appRootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-route-cache-'));
@@ -18,8 +17,7 @@ const createServer = async ({ customize } = {}) => {
   await writeFile(path.join(activePath, 'pages', 'timed.html'), '<p>@@VAR_TIMESTAMP</p>');
   await writeFile(path.join(activePath, 'pages', 'error.html'), '<p>Error</p>');
 
-  const server = new WebServer();
-  Object.assign(server.settings, {
+  const server = new WebServer({ settings: createTestSettings({
     appRootPath,
     activeSpace,
     pagesLocation: 'pages',
@@ -28,12 +26,8 @@ const createServer = async ({ customize } = {}) => {
     routeCacheDebug: false,
     debug: false,
     minify: false
-  });
-  server.activeSpacePath = activePath;
-  server.publicPath = path.join(activePath, 'public');
+  }) });
   server.dataFilePath = path.join(activePath, 'DATA.json');
-  server.tarazed = new Tarazed({ appPath: activePath, readoutCallback: server.readout });
-  server.renderCache = new RenderCache({ enabled: true, maxEntries: 20 });
 
   let renders = 0;
   const renderHTMLBody = server.renderHTMLBody;

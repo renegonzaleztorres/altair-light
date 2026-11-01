@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Bundled Altair module | 3.4.1 |
+| Bundled Altair module | 4.0.0 |
 | Document owner | This application repository |
-| Last reviewed | 2026-10-25 |
+| Last reviewed | 2026-11-01 |
 | Framework architecture | [`altair/ARCHITECTURE.md`](altair/ARCHITECTURE.md) |
 
 ## Purpose and Scope
@@ -74,7 +74,7 @@ altair-light/
 ├── index.js                    Application entry point
 ├── web-app/                    Project-owned Altair integration
 ├── spaces/kinetic/             Active pages, components, data and assets
-├── config/                     Application version and port configuration
+├── config/                     Versioned application settings
 ├── tests/                      Project-specific tests
 ├── altair/                     Reusable framework module and framework tests
 ├── WORKBENCH/                  Local work and development directory
@@ -98,13 +98,18 @@ The project startup chain is:
 
 ```text
 index.js
-  -> web-app/main.js::main()
+  -> web-app/main.js::main() (async)
   -> new WebApp()
-  -> WebApp.start()
+  -> await WebApp.start()
+  -> return the running WebApp
 ```
 
 `WebApp` extends Altair’s `WebServer`. The application currently uses the
 standard Altair startup and does not add another application service layer.
+The entry point catches rejected startup, logs a fatal error, and exits
+non-zero. The inherited startup owns settings initialization, DATA loading,
+watchers, caches, listener readiness, signal handling, and rollback of partial
+startup.
 
 ## Current Application Integration
 
@@ -233,7 +238,7 @@ The project uses three configuration layers:
 | Layer | Project responsibility | Restart/build effect |
 | --- | --- | --- |
 | Environment | Runtime paths, environment, feature flags, secrets | New process |
-| `config/*.json` | Application version and fixed server configuration | New application release |
+| `config/*.json` | Versioned application settings | New application release |
 | Kinetic DATA/content | Public site data and environment-specific public values | Hot reload; no build |
 
 `spaces/kinetic/data/DATA.json` currently contains environment sections and a

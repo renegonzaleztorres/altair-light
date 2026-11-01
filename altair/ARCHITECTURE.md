@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 3.4.1 |
+| Altair version | 4.0.0 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -51,6 +51,8 @@ run.
 ```dotenv
 NODE_ENV="development"
 APP_NAME="MyApp"
+HOST="127.0.0.1"
+PORT=3000
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
@@ -70,12 +72,11 @@ ROUTE_CACHE_RECONCILE_MS=30000
 ROUTE_CACHE_DEBUG=false
 MINIFY=false
 DEBUG=true
-HOST="127.0.0.1"
 ```
 
 **2. Verify `config/default.json`**:
 ```json
-{"version": "1.0.0", "localPort": 3000}
+{"version": "1.0.0"}
 ```
 
 **3. Create minimum files** (in order):
@@ -141,18 +142,19 @@ Lib → HTTPServer → WebServer → WebApp
 ### Key Classes
 
 **Lib** (`altair/lib.js`): Base utilities
-- `this.settings` - Config object (appName, activeSpace, debug, minify, etc.)
+- `this.settings` - Complete, validated, immutable application and runtime settings
 - `trimSlashes(s)`, `readout(msg, tag)`, `nowToJSONDateUTC()`
 
 **HTTPServer** (`altair/http-server.js`): Hono and Node.js HTTP setup
 - `this.app` - Hono instance
 - `this.dataCache` - In-memory cache from DATA.json (access via `getDataCache()`)
-- `start()` - Loads DATA.json, sets up CORS, static files, routes, WebSockets, and listening
+- `start()` - Loads settings and DATA, initializes services, awaits listener readiness, and rolls back partial startup on failure
 - `loadDataFile()` - Atomically loads DATA.json and returns a structured applied/changed result
 - `reloadActiveSpace()` - Reloads DATA, refreshes watcher state, and invalidates routes
 - `getDataCache()` - Returns dataCache object
 - `redirects()`, `notFound()`, `serverError()`, `createErrorResponse()`
 - `initializeMediaConfiguration()`, `mediaFallback()`
+- `onSettingsReady()` - Optional one-time application hook after immutable settings and framework services exist, before DATA and listener startup
 
 **WebServer** (`altair/altair.js`): Routing & rendering
 - `this.tarazed` - Template engine instance
@@ -196,7 +198,7 @@ Lib → HTTPServer → WebServer → WebApp
 
 ## Request Flow
 
-**Startup:** `index.js` → `main.js::main()` → `new WebApp()` → `wa.start()`
+**Startup:** `index.js` → async `main()` → `new WebApp()` → `await wa.start()` → running `WebApp`. Rejection returns to the explicit entry-point error boundary.
 
 **HTML Request:** Route → `renderHTML()` → Validate → Read file → `replaceElemTags()` (recursive) → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify comments (optional) → `applyGlobalReplacements()` → Send
 
@@ -466,8 +468,9 @@ spaces/[ACTIVE_SPACE]/
 
 **When to use config/*.json:**
 - Application version numbers
-- Default port, fixed constants
-- Rarely-changing technical settings
+- Application-owned structured settings and fixed constants
+- Environment-specific application behavior selected by `NODE_ENV`
+- **Never:** Listener ports, bind addresses, secrets, deployment-specific values
 - **Never:** Secrets, deployment-specific values
 - **Restart:** Required (loaded at startup only)
 - **Version control:** Check into git
@@ -484,9 +487,9 @@ spaces/[ACTIVE_SPACE]/
 
 **Example usage:**
 ```
-ENV:         DATABASE_URL="postgresql://..."       (secret, restart required)
-config:      {"version": "1.4.0", "port": 3000}    (constant, restart required)
-DATA.json:   {"siteName": "My Site", ...}          (content, hot-reload)
+ENV:         PORT=4000                              (deployment, restart required)
+config:      {"version": "1.4.0", "theme": {...}} (application, restart required)
+DATA.json:   {"siteName": "My Site", ...}         (content, hot-reload)
 ```
 
 **Security warning:** DATA.json values become template variables accessible client-side via view source. Never put secrets in DATA.json.
@@ -497,6 +500,8 @@ DATA.json:   {"siteName": "My Site", ...}          (content, hot-reload)
 ```dotenv
 NODE_ENV="development"
 APP_NAME="MyApp"
+HOST=127.0.0.1
+PORT=3000
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
@@ -513,8 +518,6 @@ ROUTE_CACHE_RECONCILE_MS=30000
 ROUTE_CACHE_DEBUG=false
 MINIFY=true
 DEBUG=true
-HOST=127.0.0.1
-PORT=3000
 ```
 
 `HOST` defaults to `127.0.0.1`, limiting access to the local machine. This is the recommended production setting behind Nginx or another reverse proxy. Set `HOST=0.0.0.0` only when Docker, containers, VMs, LAN development, or another deployment explicitly requires access through all IPv4 interfaces.
@@ -522,10 +525,17 @@ PORT=3000
 ### Config Files
 `config/default.json` (required):
 ```json
-{"version": "1.0.0", "localPort": 3000}
+{"version": "1.0.0"}
 ```
 
-Environment-specific: `development.json`, `production.json`, `staging.json`
+Environment-specific: `development.json`, `production.json`, `staging.json`.
+dotenv runs before node-config, so `.env` can select the file for local use;
+an exported `NODE_ENV` takes precedence in production. The merged config is
+copied into `this.settings`, recognized environment variables override their
+runtime counterparts, and the complete tree is deeply frozen. `HOST` and
+`PORT` are environment-only deployment settings. Startup rejects a conflicting
+node-config environment override so `NODE_ENV` and the selected config file
+cannot silently disagree.
 
 ### DATA.json (Data Cache)
 Location: `{activeSpace}/data/DATA.json`
@@ -554,7 +564,45 @@ Location: `{activeSpace}/data/DATA.json`
 All DATA.json values available as `@@VAR_*` in templates (after flattening).
 
 ### Settings Object
-Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocation`, `pagesLocation`, `dataLocation`, `dataFile`, `enableDataWatch`, `debug`, `minify`, `appRootPath`, `dirName`, `localPort`, `version`
+Every merged `config/*.json` key is available via `this.settings`, together
+with validated framework fields such as `appName`, `nodeEnv`, `host`, `port`,
+`activeSpace`, `publicLocation`, `pagesLocation`, `dataLocation`, `dataFile`,
+`enableDataWatch`, `debug`, `minify`, `appRootPath`, and `version`. The object
+and all nested values are immutable and shared with composed framework
+services.
+
+Only environment variables explicitly recognized by Altair are copied into
+`this.settings`. Application-specific secrets and provider configuration—such
+as AWS SES credentials, database credentials, payment keys, or Cloudflare
+Turnstile secrets—must not be added to the framework-wide settings object.
+
+An application that needs such values should create an application-owned
+configuration boundary under `web-app/`. That module reads only the required
+environment variables, validates and normalizes them once during startup,
+returns a narrow immutable configuration object, and injects that object into
+the service that needs it. Settings-dependent setup belongs in
+`onSettingsReady()` or another method called during `start()`, not in the
+`WebApp` constructor. Business methods then consume the injected configuration
+instead of reading `process.env` repeatedly or receiving the complete process
+environment.
+
+```javascript
+// web-app/form-config.js
+export const loadFormConfig = () => Object.freeze({
+  turnstileSecret: requireEnvironmentVariable('TURNSTILE_SECRET_KEY'),
+  sesRegion: process.env.FORM_SES_REGION || 'us-east-1'
+});
+
+// web-app/web-app.js
+onSettingsReady() {
+  this.formProcessor = new FormProcessor(loadFormConfig());
+}
+```
+
+The application should prefer workload identity or the provider's normal
+credential chain when available. If explicit credentials are necessary, their
+names should be scoped to the application feature. Public browser values, such
+as a Turnstile site key, should be kept separate from server-only secrets.
 
 ---
 
@@ -872,6 +920,7 @@ Override `additionalRoutes()` in `web-app/web-app.js`; use Hono methods such as 
 | `index.js` | Entry point |
 | `web-app/web-app.js` | Custom WebApp class |
 | `altair/altair.js` | Core WebServer |
+| `altair/settings.js` | Validated immutable settings loader |
 | `altair/tarazed.js` | Template engine |
 | `.env` | Environment variables |
 | `config/default.json` | Base config |
@@ -903,7 +952,9 @@ Override `additionalRoutes()` in `web-app/web-app.js`; use Hono methods such as 
 | `@@VAR_*` | Any value | DATA.json (flattened, e.g., `contact_email`) |
 
 ### Settings
-Available via `this.settings`: `appName`, `nodeEnv`, `activeSpace`, `publicLocation`, `pagesLocation`, `dataLocation`, `dataFile`, `enableDataWatch`, `debug`, `minify`, `appRootPath`, `dirName`, `localPort`, `version`
+Available via immutable `this.settings`: all merged application config keys and
+the validated framework runtime fields, including `nodeEnv`, `host`, `port`,
+`activeSpace`, and watcher/cache settings.
 
 ---
 

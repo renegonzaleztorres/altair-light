@@ -7,17 +7,22 @@ import { fs, fsSync, path } from './dependencies.js';
 class SpaceWatcher {
 
   constructor({
+    settings = null,
     rootPath,
-    quietMs = 250,
-    maxBatchMs = 2000,
-    reconcileEnabled = false,
-    reconcileMs = 30000,
+    quietMs,
+    maxBatchMs,
+    reconcileEnabled,
+    reconcileMs,
     ignoredPaths = [],
     onDirty = null,
     onBatch = null,
     onUncertain = null,
     readoutCallback = null
   } = {}) {
+    quietMs ??= settings?.routeCacheQuietMs ?? 250;
+    maxBatchMs ??= settings?.routeCacheMaxBatchMs ?? 2000;
+    reconcileEnabled ??= settings?.routeCacheReconcile ?? false;
+    reconcileMs ??= settings?.routeCacheReconcileMs ?? 30000;
     this.rootPath = rootPath;
     this.quietMs = quietMs;
     this.maxBatchMs = maxBatchMs;

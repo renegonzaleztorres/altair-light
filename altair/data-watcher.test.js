@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import HTTPServer from './http-server.js';
+import { createTestSettings } from './test/helpers.js';
 
 const waitFor = async (predicate, timeoutMs = 2000) => {
   const startedAt = Date.now();
@@ -25,10 +26,7 @@ const replaceAtomically = async (targetPath, value, sequence) => {
 test('data watcher survives repeated atomic rename replacements', async () => {
   const dataDirectory = await mkdtemp(path.join(os.tmpdir(), 'altair-data-watch-'));
   const dataFilePath = path.join(dataDirectory, 'DATA.json');
-  const server = new HTTPServer();
-
-  server.settings.nodeEnv = 'development';
-  server.settings.debug = false;
+  const server = new HTTPServer({ settings: createTestSettings({ debug: false }) });
   server.dataFilePath = dataFilePath;
   server.dataFileWatchInterval = 20;
   server.dataReloadDebounce = 25;
@@ -64,8 +62,7 @@ test('data watcher survives repeated atomic rename replacements', async () => {
 test('DATA reload results distinguish unchanged, invalid, and missing states', async () => {
   const dataDirectory = await mkdtemp(path.join(os.tmpdir(), 'altair-data-state-'));
   const dataFilePath = path.join(dataDirectory, 'DATA.json');
-  const server = new HTTPServer();
-  server.settings.debug = false;
+  const server = new HTTPServer({ settings: createTestSettings({ debug: false }) });
   server.dataFilePath = dataFilePath;
 
   try {

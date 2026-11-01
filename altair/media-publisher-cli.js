@@ -1,16 +1,11 @@
 import { parseArgs } from 'node:util';
 import {
-  __ACTIVE_SPACE,
-  __MEDIA_LOCATION,
-  __PUBLIC_LOCATION,
-  __appRootPath
-} from './constants.js';
-import {
   acquirePublicationLock,
   createPublisherConfiguration,
   publishMedia,
   redactSensitiveValues
 } from './media-publisher.js';
+import { loadSettings } from './settings.js';
 
 const usage = `Altair media publisher
 
@@ -60,12 +55,14 @@ const main = async () => {
     return;
   }
 
+  const settings = loadSettings();
+
   const configuration = createPublisherConfiguration({
     settings: {
-      appRootPath: __appRootPath,
-      activeSpace: __ACTIVE_SPACE,
-      publicLocation: __PUBLIC_LOCATION,
-      mediaLocation: __MEDIA_LOCATION,
+      appRootPath: settings.appRootPath,
+      activeSpace: settings.activeSpace,
+      publicLocation: settings.publicLocation,
+      mediaLocation: settings.mediaLocation,
       mediaCdnFallback: false,
       mediaCdnBaseUrl: ''
     }

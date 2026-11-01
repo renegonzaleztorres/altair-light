@@ -9,14 +9,6 @@ import HTTPServer from '../../http-server.js';
 
 class TestHTTPServer extends HTTPServer {
 
-  constructor() {
-    super();
-    this.settings.appName = 'altair-http-test';
-    this.settings.enableDataWatch = false;
-    this.settings.enableWebSocket = false;
-    this.settings.debug = true;
-  }
-
   routes() {
     this.app.get('/', (context) => context.text('Altair HTTP test fixture'));
   }

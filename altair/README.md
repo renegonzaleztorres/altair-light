@@ -25,13 +25,16 @@ At minimum, it should contain:
 
 ```json
 {
-  "version": "1.0.0",
-  "localPort": 3000
+  "version": "1.0.0"
 }
 ```
 
 -	"version" — a user-defined project version string.
--	"localPort" — any valid port number to use for local development.
+
+The complete merged configuration is exposed as the immutable `this.settings`
+object. `config/default.json` is merged with `config/<NODE_ENV>.json`; explicit
+framework environment variables override their corresponding settings. Use
+`PORT`, not a config-file port, for the HTTP listener.
 
 ### Environment Variables (.env)
 
@@ -40,6 +43,8 @@ Create a .env file in the root of the project.
 ```dotenv
 NODE_ENV="development"
 APP_NAME="altair-light"
+HOST="127.0.0.1"
+PORT=3000
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
@@ -69,7 +74,6 @@ ROUTE_CACHE_RECONCILE_MS=30000
 ROUTE_CACHE_DEBUG=false
 MINIFY=true
 DEBUG=true
-HOST="127.0.0.1"
 ENABLE_WEBSOCKET=false
 WEBSOCKET_PATH="/ws"
 WEBSOCKET_HEARTBEAT_MS=30000
@@ -77,7 +81,9 @@ WEBSOCKET_SESSION_TTL_SECS=3600
 WEBSOCKET_ALLOWED_ORIGINS=""
 ```
 
+- NODE_ENV — Selects the environment-specific config file (default `development`).
 - HOST — HTTP bind address. Defaults to `127.0.0.1` for local/loopback access only; recommended for production behind Nginx or another reverse proxy. Set to `0.0.0.0` only when all IPv4 interfaces must be reachable, such as in Docker, containers, VMs, or LAN development.
+- PORT — HTTP listening port (default `3000`; valid range 1–65535).
 -	APP_NAME — Your project’s application name.
 -	ACTIVE_SPACE — Path to the working “space” or directory where app files are "sourced" from.
 -	PUBLIC_LOCATION — Directory under ACTIVE_SPACE that acts as the public root for static assets.
@@ -292,6 +298,12 @@ additionalRoutes = () => {
 };
 ```
 
+Application constructors should remain lightweight and must not read
+`this.settings`, which is initialized inside the awaited startup lifecycle.
+Override `onSettingsReady()` for one-time application initialization that
+depends on settings; a thrown error rejects `start()` and reaches the explicit
+`main().catch(...)` boundary.
+
 ### Case 1
 
 main.js
@@ -300,7 +312,7 @@ main.js
 import WebServer from '../altair/altair.js';
 
 const wa = new WebServer();
-wa.start();
+await wa.start();
 ```
 
 ### Case 2
@@ -330,13 +342,13 @@ web-app/main.js
 ```js
 import WebApp from './web-app.js';
 
-export const main = () => {
+export const main = async () => {
 
     // Start web app
     const wa = new WebApp();
-    wa.start();
+    await wa.start();
 
-    return;
+    return wa;
 
 }; // main
 ```
@@ -348,7 +360,11 @@ index.js
 
 import { main } from './web-app/main.js';
 
-main();
+main().catch((error) => {
+  console.error('[Startup] The web app failed to start');
+  console.error(error);
+  process.exit(1);
+});
 ```
 
 ## Architecture

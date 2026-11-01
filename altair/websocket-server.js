@@ -13,14 +13,15 @@ const DEFAULT_SESSION_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{2,63}$/;
 
 export class WSServer {
   constructor(httpServer, options = {}) {
+    this.settings = options.settings || null;
     this.sessions = new Map();      // session_id → { ws, messageQueue, isAlive, lastActivity, messageTimestamps }
     this.wsToSession = new Map();   // ws → session_id (reverse lookup)
-    this.path = options.path || '/ws';
-    this.heartbeatInterval = options.heartbeatInterval || 30000;
+    this.path = options.path || this.settings?.webSocketPath || '/ws';
+    this.heartbeatInterval = options.heartbeatInterval || this.settings?.webSocketHeartbeatMs || 30000;
     this.onMessage = options.onMessage || null;
 
     // Security: Session TTL (default 1 hour)
-    this.sessionTTL = options.sessionTTL || 3600000;
+    this.sessionTTL = options.sessionTTL || (this.settings?.webSocketSessionTtlSecs * 1000) || 3600000;
     this.cleanupInterval = options.cleanupInterval || 60000; // Check every minute
 
     // Security: Queue size limit (default 100 messages)
@@ -38,7 +39,7 @@ export class WSServer {
 
     // Security: Origin validation
     // Values: "" (reject all), "*" (allow all), "same-origin", or comma-separated list
-    this.allowedOrigins = this.parseAllowedOrigins(options.allowedOrigins || '');
+    this.allowedOrigins = this.parseAllowedOrigins(options.allowedOrigins || this.settings?.webSocketAllowedOrigins || '');
 
     // Create WebSocket server on dedicated path
     this.wss = new WSS({

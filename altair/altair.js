@@ -17,17 +17,27 @@ const NON_PAGE_EXTENSIONS = new Set([
 
 class WebServer extends HTTPServer {
 
-  constructor() {
+  constructor(options = {}) {
 
-    super();
-    this.tarazed = new Tarazed({ appPath: path.join(this.settings.appRootPath, this.settings.activeSpace), readoutCallback: this.readout });
-    this.renderCache = new RenderCache({
-      enabled: this.settings.enableRouteCache,
-      maxEntries: this.settings.routeCacheMaxEntries,
-      readoutCallback: this.settings.routeCacheDebug ? (message) => this.routeCacheReadout(message) : null
-    });
+    super(options);
+    this.tarazed = null;
+    this.renderCache = null;
+    this.applicationInitialized = false;
+    if (this.settings) this.initializeApplication();
 
   } // constructor
+
+  initializeApplication() {
+
+    if (this.applicationInitialized) return;
+    this.tarazed = new Tarazed({ appPath: path.join(this.settings.appRootPath, this.settings.activeSpace), readoutCallback: this.readout });
+    this.renderCache = new RenderCache({
+      settings: this.settings,
+      readoutCallback: this.settings.routeCacheDebug ? (message) => this.routeCacheReadout(message) : null
+    });
+    this.applicationInitialized = true;
+
+  } // initializeApplication
 
   // routes : definitions (override when needed or override additionalRoutes() to add custom routes)
   routes = () => {
@@ -260,7 +270,7 @@ class WebServer extends HTTPServer {
 
   closeRouteCache() {
 
-    this.renderCache.close();
+    if (this.renderCache) this.renderCache.close();
 
   } // closeRouteCache
 

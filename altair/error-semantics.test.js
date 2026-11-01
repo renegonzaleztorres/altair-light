@@ -5,8 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import WebServer from './altair.js';
-import RenderCache from './render-cache.js';
-import Tarazed from './tarazed.js';
+import { createTestSettings } from './test/helpers.js';
 
 const createFixture = async ({ custom404, custom500, customize } = {}) => {
   const appRootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-http-errors-'));
@@ -24,8 +23,7 @@ const createFixture = async ({ custom404, custom500, customize } = {}) => {
   if (custom404) await writeFile(path.join(activePath, 'pages', '_404.html'), custom404);
   if (custom500) await writeFile(path.join(activePath, 'pages', '_500.html'), custom500);
 
-  const server = new WebServer();
-  Object.assign(server.settings, {
+  const server = new WebServer({ settings: createTestSettings({
     appRootPath,
     activeSpace,
     pagesLocation: 'pages',
@@ -35,12 +33,8 @@ const createFixture = async ({ custom404, custom500, customize } = {}) => {
     routeCacheDebug: false,
     debug: false,
     minify: false
-  });
-  server.activeSpacePath = activePath;
-  server.publicPath = path.join(activePath, 'public');
+  }) });
   server.dataFilePath = path.join(activePath, 'DATA.json');
-  server.tarazed = new Tarazed({ appPath: activePath, readoutCallback: server.readout });
-  server.renderCache = new RenderCache({ enabled: true, maxEntries: 20 });
   if (customize) customize(server);
   server.routes();
   return { server, appRootPath, activePath };

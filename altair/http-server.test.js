@@ -2,9 +2,14 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+
+import HTTPServer from './http-server.js';
+import { createTestSettings } from './test/helpers.js';
 
 const altairDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.dirname(altairDirectory);
@@ -114,3 +119,55 @@ for (const scenario of [
     }
   });
 }
+
+test('startup rejects and cleans up when the HTTP listener cannot bind', async () => {
+  const blocker = createServer();
+  blocker.listen(0, '127.0.0.1');
+  await once(blocker, 'listening');
+  const { port } = blocker.address();
+  const appRootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-startup-rollback-'));
+  await mkdir(path.join(appRootPath, 'space', 'public'), { recursive: true });
+  const server = new HTTPServer({ settings: createTestSettings({
+    appRootPath,
+    activeSpace: 'space',
+    publicLocation: 'public',
+    dataLocation: 'data',
+    dataFile: 'DATA.json',
+    enableDataWatch: false,
+    host: '127.0.0.1',
+    port
+  }) });
+
+  try {
+    await assert.rejects(server.start(), (error) => error.code === 'EADDRINUSE');
+    assert.equal(server.shuttingDown, true);
+    assert.equal(server.signalHandlers, null);
+    assert.equal(server.spaceWatcher, null);
+  } finally {
+    blocker.close();
+    await once(blocker, 'close');
+    await rm(appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('settings-ready initialization runs once and its failures reject startup', async () => {
+  class ReadyServer extends HTTPServer {
+    notifications = 0;
+    onSettingsReady() {
+      this.notifications += 1;
+    }
+  }
+  const ready = new ReadyServer({ settings: createTestSettings() });
+  ready.initialize();
+  ready.initialize();
+  assert.equal(ready.notifications, 1);
+
+  class FailingServer extends HTTPServer {
+    onSettingsReady() {
+      throw new Error('application initialization failed');
+    }
+  }
+  const failing = new FailingServer({ settings: createTestSettings() });
+  await assert.rejects(failing.start(), /application initialization failed/);
+  assert.equal(failing.shuttingDown, true);
+});

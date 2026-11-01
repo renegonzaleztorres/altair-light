@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [Unreleased]
+
+## [4.0.0] - 2026-11-01
+
+### Added
+- Added one validated, deeply immutable settings tree containing the complete merged application config
+- Added optional immutable settings injection for isolated framework and application tests
+- Added `onSettingsReady()` as the application initialization boundary for settings-dependent services
+- Added isolated startup tests for `.env`, exported environment precedence, environment-specific config selection, and invalid ports
+- Added startup lifecycle coverage for listener failures, cleanup, and one-time initialization
+
+### Changed
+- Moved `HOST` and `PORT` to validated deployment environment settings and removed `config.localPort`
+- Made explicit `main()` startup asynchronous, awaited listener readiness, returned the running WebApp, and added transactional startup cleanup
+- Delayed node-config initialization until after dotenv and stopped exporting initialization-sensitive packages through the dependency barrel
+- Made normal constructors lightweight by moving fallible configuration and service initialization into `start()`
+- Shared settings explicitly with composed cache, watcher, WebSocket, and publisher services
+- Documented the application-owned configuration boundary for validating and injecting feature-specific secrets without adding them to framework settings
+
+### Removed
+- Removed the legacy `altair/constants.js` settings path in favor of the validated settings loader
+
 ## [3.4.1] - 2026-10-25
 
 ### Fixed

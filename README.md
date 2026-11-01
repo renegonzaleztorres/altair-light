@@ -9,7 +9,7 @@ Altair Light is a foundational, minimalist Node.js web server framework designed
 Altair Light is built on a simple premise: **fork, configure, prompt, build**.
 
 1. **Fork** this repository to create your own foundation
-2. **Configure** basic settings (project name, port, etc.)
+2. **Configure** application settings and deployment environment variables
 3. **Prompt** AI assistants and tools to generate pages, components, and features
 4. **Build** using Altair-Light's primitives and conventions — let the AI assistant generate and manage all the code
 
@@ -84,8 +84,7 @@ toolchain change.
    Ensure `/config/default.json` exists with at minimum:
    ```json
    {
-     "version": "1.0.0",
-     "localPort": 3000
+     "version": "1.0.0"
    }
    ```
 
@@ -97,9 +96,10 @@ Start the development server:
 pnpm start
 ```
 
-The server will start on **http://localhost:3000** (or the port specified in your config).
+The server will start on **http://localhost:3000** unless `HOST` or `PORT` selects another address.
 
-To change the port, edit `/config/default.json` and set `localPort` to your desired value.
+Use `.env` for local `HOST` and `PORT` values. In production, set them through
+PM2, systemd, Docker, or the hosting platform.
 
 ## Configuration
 
@@ -110,6 +110,8 @@ Create a `.env` file in the project root (copy from `.env.example`):
 ```dotenv
 NODE_ENV="development"
 APP_NAME="<PROJECT_NAME>"
+HOST="127.0.0.1"
+PORT=3000
 ACTIVE_SPACE="spaces/kinetic"
 PUBLIC_LOCATION="public"
 PAGES_LOCATION="pages"
@@ -139,7 +141,6 @@ ROUTE_CACHE_RECONCILE_MS=30000
 ROUTE_CACHE_DEBUG=false
 MINIFY=true
 DEBUG=true
-HOST="127.0.0.1"
 ENABLE_WEBSOCKET=false
 WEBSOCKET_PATH="/ws"
 WEBSOCKET_HEARTBEAT_MS=30000
@@ -148,7 +149,9 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 ```
 
 **Variable Descriptions:**
+- `NODE_ENV` — Selects `config/<NODE_ENV>.json`; defaults to `development`
 - `HOST` — HTTP bind address. Defaults to `127.0.0.1` for local/loopback access only; recommended for production behind Nginx or another reverse proxy. Set to `0.0.0.0` only when all IPv4 interfaces must be reachable, such as in Docker, containers, VMs, or LAN development.
+- `PORT` — HTTP listening port; defaults to `3000` and must be an integer from 1 to 65535
 - `APP_NAME` — Your project's application name
 - `ACTIVE_SPACE` — Path to the working "space" or directory where app files are sourced from
 - `PUBLIC_LOCATION` — Directory under ACTIVE_SPACE that acts as the public root for static assets
@@ -195,16 +198,21 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 
 ### Config File
 
-Edit `/config/default.json` to change the port and/or version number. At minimum, it should contain:
+`config/default.json` contains application settings that are safe to commit. At
+minimum, it can contain:
 
 ```json
 {
-  "version": "1.0.0",
-  "localPort": 3000
+  "version": "1.0.0"
 }
 ```
 
-Environment-specific configs (`development.json`, `production.json`, `staging.json`) can override or extend these settings.
+Environment-specific files (`development.json`, `production.json`,
+`staging.json`) override or extend the defaults selected by `NODE_ENV`. The
+complete merged object is available to application code through
+`this.settings`; recognized environment variables override equivalent runtime
+settings. The finalized settings tree is immutable. Ports and bind addresses
+belong in `PORT` and `HOST`, not in `config/`.
 
 ### data/DATA.json (Data Cache)
 
