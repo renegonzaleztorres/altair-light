@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { HTTPException } from 'hono/http-exception';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { randomUUID } from 'node:crypto';
@@ -25,11 +26,13 @@ class HTTPServer extends Lib {
       reason: 'route-unmatched',
       resourceType: 'resource'
     }));
-    this.app.onError((error, context) => this.serverError(context, error, {
-      path: context.req.path,
-      source: 'unhandled-route',
-      resourceType: this.requestExpectsHTML(context) ? 'html' : 'resource'
-    }));
+    this.app.onError((error, context) => error instanceof HTTPException && error.status < 500
+      ? this.clientError(context, error)
+      : this.serverError(context, error, {
+        path: context.req.path,
+        source: 'unhandled-route',
+        resourceType: this.requestExpectsHTML(context) ? 'html' : 'resource'
+      }));
     this.server = null;
     this.wsServer = null;
     this.activeSpacePath = null;
@@ -555,6 +558,22 @@ class HTTPServer extends Lib {
     return this.createErrorResponse(context, 404, 'Not Found');
 
   } // notFound
+
+  // clientError : 4xx rejection thrown by Hono middleware (csrf, bodyLimit, auth); keeps its status and headers
+  clientError(context, error) {
+
+    const response = error.getResponse();
+    const headers = new Headers(response.headers);
+    headers.set('Cache-Control', 'no-store');
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'text/plain; charset=UTF-8');
+    this.readout(
+      `${response.status} - path: ${this.safeLogValue(context.req.path)} - reason: request-rejected`,
+      'Client-Error'
+    );
+    const body = context.req.method.toUpperCase() === 'HEAD' ? null : response.body;
+    return new Response(body, { status: response.status, headers });
+
+  } // clientError
 
   // createErrorReference : opaque identifier safe to expose to a visitor
   createErrorReference() {

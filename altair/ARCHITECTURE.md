@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 4.1.2 |
+| Altair version | 4.1.3 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -153,7 +153,7 @@ Lib → HTTPServer → WebServer → WebApp
 - `loadDataFile()` - Atomically loads DATA.json and returns a structured applied/changed result
 - `reloadActiveSpace()` - Reloads DATA, refreshes watcher state, and invalidates routes
 - `getDataCache()` - Returns dataCache object
-- `redirects()`, `notFound()`, `serverError()`, `createErrorResponse()`
+- `redirects()`, `notFound()`, `clientError()`, `serverError()`, `createErrorResponse()`
 - `initializeMediaConfiguration()`, `mediaFallback()`
 - `onSettingsReady()` - Optional one-time application hook after immutable settings and framework services exist, before DATA and listener startup
 
@@ -229,6 +229,11 @@ preserved. Altair never proxies remote media bytes.
 - Unexpected renderer or application exceptions reach `serverError()` and
   return `500` with an opaque UUID reference. Internal details are logged but
   never included in the visitor response.
+- A `4xx` `HTTPException` thrown by Hono middleware such as `csrf()`,
+  `bodyLimit()`, or `basicAuth()` reaches `clientError()` instead, keeping its
+  status and headers (for example `403` or `401` with `WWW-Authenticate`) and
+  adding `Cache-Control: no-store`. A `5xx` `HTTPException` is still treated
+  as a server error.
 - Optional private `pages/_404.html` and `pages/_500.html` files are processed
   through Tarazed on demand. They retain the error status, are marked
   `no-store` and `noindex`, and never enter the route cache. If an error page

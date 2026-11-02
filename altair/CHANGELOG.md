@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.3] - 2026-11-02
+
+### Fixed
+- Kept the status of `4xx` rejections thrown by Hono middleware: a cross-site POST blocked by `csrf()` now returns `403`, an oversized body under `bodyLimit()` returns `413`, and `basicAuth()` returns `401` with its `WWW-Authenticate` header, where 4.1.2 turned each into a logged `500`. The new `clientError()` keeps the middleware's headers and adds `Cache-Control: no-store`; `5xx` exceptions still go through `serverError()`
+
+### Added
+- Added a regression test covering `csrf()`, `bodyLimit()`, `basicAuth()`, `HEAD` requests, and a `5xx` `HTTPException`
+
 ## [4.1.2] - 2026-11-02
 
 ### Changed

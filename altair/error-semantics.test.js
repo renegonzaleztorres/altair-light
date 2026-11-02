@@ -3,6 +3,10 @@ import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { basicAuth } from 'hono/basic-auth';
+import { bodyLimit } from 'hono/body-limit';
+import { csrf } from 'hono/csrf';
+import { HTTPException } from 'hono/http-exception';
 
 import WebServer from './altair.js';
 import { createTestSettings } from './test/helpers.js';
@@ -205,6 +209,54 @@ test('unhandled route errors are safe and intentional redirects preserve status'
     const expected = await request(fixture.server, '/api/expected');
     assert.equal(expected.status, 422);
     assert.deepEqual(await expected.json(), { error: 'expected' });
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('Hono middleware rejections keep their 4xx status instead of becoming 500', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  const fixture = await createFixture({
+    customize: (server) => {
+      server.additionalRoutes = () => {
+        server.app.post('/contact', csrf(), (context) => context.text('sent'));
+        server.app.post('/upload', bodyLimit({ maxSize: 10 }), (context) => context.text('stored'));
+        server.app.get('/admin', basicAuth({ username: 'admin', password: 'fixture-only' }), (context) => context.text('admin'));
+        server.app.get('/unavailable', () => { throw new HTTPException(503, { message: 'internal upstream detail' }); });
+      };
+    }
+  });
+  try {
+    const form = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    const crossSite = await request(fixture.server, '/contact', {
+      method: 'POST', headers: { ...form, Origin: 'https://evil.example' }, body: 'message=hi'
+    });
+    assert.equal(crossSite.status, 403);
+    assert.equal(crossSite.headers.get('cache-control'), 'no-store');
+
+    const sameSite = await request(fixture.server, '/contact', {
+      method: 'POST', headers: { ...form, Origin: 'http://altair.test' }, body: 'message=hi'
+    });
+    assert.equal(sameSite.status, 200);
+
+    const oversized = await request(fixture.server, '/upload', {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'x'.repeat(100)
+    });
+    assert.equal(oversized.status, 413);
+
+    const unauthorized = await request(fixture.server, '/admin');
+    assert.equal(unauthorized.status, 401);
+    assert.match(unauthorized.headers.get('www-authenticate') ?? '', /^Basic /);
+    const unauthorizedHead = await request(fixture.server, '/admin', { method: 'HEAD' });
+    assert.equal(unauthorizedHead.status, 401);
+    assert.equal(await unauthorizedHead.text(), '');
+
+    assert.equal(logged.mock.callCount(), 0);
+
+    const unavailable = await request(fixture.server, '/unavailable');
+    assert.equal(unavailable.status, 500);
+    assert.doesNotMatch(await unavailable.text(), /internal upstream detail/);
+    assert.equal(logged.mock.callCount(), 1);
   } finally {
     await rm(fixture.appRootPath, { recursive: true, force: true });
   }
