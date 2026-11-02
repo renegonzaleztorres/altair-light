@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 4.1.0 |
+| Altair version | 4.1.1 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -618,11 +618,40 @@ as a Turnstile site key, should be kept separate from server-only secrets.
 
 ## Extension Points
 
+Applications extend `WebServer` (see `web-app/web-app.js`) and override its
+hooks. The framework declares every hook as a prototype method, so a subclass
+may override it with either syntax:
+
+- **Method syntax** (`additionalRoutes() { ... }`) is the default style for new
+  code.
+- **Class-field syntax** (`additionalRoutes = () => { ... };`) is also
+  supported. It is the style used by the bundled `web-app/web-app.js`.
+
+Either way, the override replaces the framework default, and
+`super.hookName(...)` calls the framework implementation. Override each hook
+once per class; if a class declares both forms for the same name, the
+class-field form wins.
+
+Overridable hooks: `routes`, `additionalRoutes`, `renderHTML`,
+`renderHTMLBody`, `renderCSS`, `renderJS`, `applyGlobalReplacements`,
+`pageNameValidation`, `varDefinitions`, `additionalVarDefinitions`,
+`handleMissingPage`, `notFound`, `serverError`, `routeCacheEligibility`,
+`onSettingsReady`.
+
+Hooks are called with the server as `this`. Code that copies a hook into a
+variable and calls it later must bind it first:
+`const original = server.applyGlobalReplacements.bind(server);`.
+
 **Custom Routes:**
 ```javascript
 additionalRoutes() {
   this.app.get('/api/data', (context) => context.json({ data: 'value' }));
 }
+
+// Equivalent class-field form
+additionalRoutes = () => {
+  this.app.get('/api/data', (context) => context.json({ data: 'value' }));
+};
 ```
 
 **Custom Variables:**
@@ -630,15 +659,29 @@ additionalRoutes() {
 additionalVarDefinitions() {
   return { apiendpoint: '/api/data', theme: 'dark' };
 }
+
+// Equivalent class-field form
+additionalVarDefinitions = () => {
+  return { apiendpoint: '/api/data', theme: 'dark' };
+};
 ```
 
 **Custom Rendering:**
 ```javascript
-renderHTML = async (p, context) => {
+async renderHTML(p, context, options) {
   // Custom preprocessing
-  return super.renderHTML(p, context);
+  return super.renderHTML(p, context, options);
 }
+
+// Equivalent class-field form
+renderHTML = async (p, context, options) => {
+  // Custom preprocessing
+  return super.renderHTML(p, context, options);
+};
 ```
+
+Pass `options` through. The framework's own routes use it to mark core routes;
+without it, pages are treated as custom routes and are never route-cached.
 
 **Custom Middleware:**
 ```javascript
@@ -853,9 +896,9 @@ additionalRoutes() {
 
 **Dynamic Data:**
 ```javascript
-renderHTML = async (p, context) => {
+async renderHTML(p, context, options) {
   this.customData = await this.fetchData(p);
-  return super.renderHTML(p, context);
+  return super.renderHTML(p, context, options);
 }
 additionalVarDefinitions() {
   return { ...this.customData };

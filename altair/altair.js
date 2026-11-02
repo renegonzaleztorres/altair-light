@@ -41,7 +41,7 @@ class WebServer extends HTTPServer {
   } // initializeApplication
 
   // routes : definitions (override when needed or override additionalRoutes() to add custom routes)
-  routes = () => {
+  routes() {
 
     // Root
     this.app.get('/', (context) => {
@@ -84,14 +84,14 @@ class WebServer extends HTTPServer {
   } // routes
 
   // additionalRoutes : definitions (override as needed)
-  additionalRoutes = () => {
+  additionalRoutes() {
     
     return;
 
   } // additionalRoutes
 
   // renderHTML : render html pages
-  renderHTML = async (p, context, { coreRoute = false, bypassCache = false } = {}) => {
+  async renderHTML(p, context, { coreRoute = false, bypassCache = false } = {}) {
 
     try{
       if (!this.pageNameValidation(p)) {
@@ -172,12 +172,12 @@ class WebServer extends HTTPServer {
   } // renderHTML
 
   // renderHTMLBody : render a page without constructing a response
-  renderHTMLBody = async (p, {
+  async renderHTMLBody(p, {
     allowPrivate = false,
     currentPath = p,
     routePath = p,
     variables = {}
-  } = {}) => {
+  } = {}) {
 
     let filePath = this.resolvePageFile(p, { allowPrivate });
     let data = await fs.readFile(filePath, 'utf8');
@@ -310,7 +310,7 @@ class WebServer extends HTTPServer {
   } // closeRouteCache
 
   // renderCSS : render css scripts
-  renderCSS = async (p, context) => {
+  async renderCSS(p, context) {
 
     try {
       if (!this.pageNameValidation(p)) {
@@ -347,7 +347,7 @@ class WebServer extends HTTPServer {
   } // renderCSS
 
   // renderJS : render js scripts
-  renderJS = async (p, context) => {
+  async renderJS(p, context) {
 
     try{
       if (!this.pageNameValidation(p)) {
@@ -384,7 +384,7 @@ class WebServer extends HTTPServer {
   } // renderJS
 
   // applyGlobalReplacements : final content replacement hook (override as needed)
-  applyGlobalReplacements = async ({ content, type, routePath } = {}) => {
+  async applyGlobalReplacements({ content, type, routePath } = {}) {
     if (typeof content !== 'string' || content.length === 0)
       return content;
 
@@ -536,7 +536,7 @@ class WebServer extends HTTPServer {
   } // resolveActiveSpaceFile
 
   // pageNameValidation : validate the page|script name
-  pageNameValidation = (p) => {
+  pageNameValidation(p) {
 
     const normalized = this.normalizeContentPath(p);
     if (!normalized) return false;
@@ -545,7 +545,7 @@ class WebServer extends HTTPServer {
   } // pageNameValidation
 
   // varDefinitions : define an object containing some standard "var" definitions
-  varDefinitions = ({ currentPath, ...otherProps } = {}) => {
+  varDefinitions({ currentPath, ...otherProps } = {}) {
 
     // Normalize 'home' to '/'
     if (currentPath === 'home') {
@@ -568,7 +568,7 @@ class WebServer extends HTTPServer {
   } // varDefinitions
 
   // additionalVarDefinitions : define an object containing any addditional "var" definitions (override as needed)
-  additionalVarDefinitions = () => {
+  additionalVarDefinitions() {
 
     let v = {};
 

@@ -31,7 +31,7 @@ const createServer = async ({ customize, settings = {} } = {}) => {
   server.dataFilePath = path.join(activePath, 'DATA.json');
 
   let renders = 0;
-  const renderHTMLBody = server.renderHTMLBody;
+  const renderHTMLBody = server.renderHTMLBody.bind(server);
   server.renderHTMLBody = async (...args) => {
     renders += 1;
     return renderHTMLBody(...args);
@@ -194,7 +194,7 @@ test('reloadActiveSpace reloads DATA and invalidates all route entries', async (
 test('custom render routes, redirects, and errors never enter the core cache', async () => {
   const fixture = await createServer({
     customize: (server) => {
-      const applyGlobalReplacements = server.applyGlobalReplacements;
+      const applyGlobalReplacements = server.applyGlobalReplacements.bind(server);
       server.applyGlobalReplacements = async (options) => {
         if (options.routePath === '/error') throw new Error('test render failure');
         return applyGlobalReplacements(options);

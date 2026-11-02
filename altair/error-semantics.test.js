@@ -90,7 +90,7 @@ test('optional private error pages render with their error status and safe varia
     custom404: '<h1>Custom missing</h1><p>@@VAR_currentpath</p>',
     custom500: '<h1>Custom failure</h1><p>@@VAR_errorreference</p>',
     customize: (server) => {
-      const applyGlobalReplacements = server.applyGlobalReplacements;
+      const applyGlobalReplacements = server.applyGlobalReplacements.bind(server);
       server.applyGlobalReplacements = async (options) => {
         if (options.routePath === '/broken') throw new Error('private render detail');
         return applyGlobalReplacements(options);
@@ -121,7 +121,7 @@ test('a broken custom 500 page falls back safely without recursive rendering', a
   const fixture = await createFixture({
     custom500: '<h1>Also broken</h1>',
     customize: (server) => {
-      const applyGlobalReplacements = server.applyGlobalReplacements;
+      const applyGlobalReplacements = server.applyGlobalReplacements.bind(server);
       server.applyGlobalReplacements = async (options) => {
         if (options.routePath === '/broken' || options.routePath === '_500') {
           throw new Error('must remain private');
@@ -236,7 +236,7 @@ test('an unhandled HTML route error can use the private 500 page', async () => {
 test('CSS and JavaScript transformation failures return safe 500 responses', async () => {
   const fixture = await createFixture({
     customize: (server) => {
-      const applyGlobalReplacements = server.applyGlobalReplacements;
+      const applyGlobalReplacements = server.applyGlobalReplacements.bind(server);
       server.applyGlobalReplacements = async (options) => {
         if (options.type === 'css' || options.type === 'js') throw new Error('asset transform detail');
         return applyGlobalReplacements(options);

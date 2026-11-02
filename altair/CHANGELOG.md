@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.1] - 2026-11-02
+
+### Fixed
+- Declared the `WebServer` hooks (`routes`, `additionalRoutes`, `renderHTML`, `renderHTMLBody`, `renderCSS`, `renderJS`, `applyGlobalReplacements`, `pageNameValidation`, `varDefinitions`, `additionalVarDefinitions`) as prototype methods so method-syntax overrides are no longer silently ignored and overrides can call `super`; class-field overrides keep working
+- Corrected the extension examples in `ARCHITECTURE.md`, documented both override syntaxes, and passed `renderHTML` options through so overridden pages stay route-cacheable
+
 ## [4.1.0] - 2026-11-01
 
 ### Added
