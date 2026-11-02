@@ -2,7 +2,7 @@
  * Web server
  */
 
-import { fs, path, minify, CleanCSS } from './dependencies.js'
+import { fs, path, loadTerser, loadCleanCSS } from './dependencies.js'
 import { createHash } from 'node:crypto';
 import HTTPServer from './http-server.js';
 import RenderCache from './render-cache.js';
@@ -323,6 +323,7 @@ class WebServer extends HTTPServer {
       data = await this.tarazed.replaceDataTags(data);
       data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath: p }));
       if (this.settings.minify) { // Minify CSS, when specified
+        const CleanCSS = await loadCleanCSS();
         let minified = new CleanCSS().minify(data);
         if (minified.errors && minified.errors.length > 0)
           throw new Error(`CSS minification error(s) > ${minified.errors.join(', ')}`);
@@ -360,6 +361,7 @@ class WebServer extends HTTPServer {
       data = await this.tarazed.replaceDataTags(data);
       data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath: p }));
       if (this.settings.minify) { // Minify JS, when specified
+        const { minify } = await loadTerser();
         let minified = await minify(data);
         if (minified.error)
           throw new Error(`JS minification error(s) > ${minified.error.message}`);

@@ -9,7 +9,6 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { path, fs, fsSync } from './dependencies.js'
-import { WSServer } from './websocket-server.js';
 import Lib from './lib.js';
 import { createMediaRedirectUrl, mediaRequestTarget, resolveMediaConfiguration } from './media-config.js';
 import { loadSettings } from './settings.js';
@@ -439,6 +438,7 @@ class HTTPServer extends Lib {
 
       // Initialize WebSocket server if enabled
       if (this.settings.enableWebSocket) {
+      const { WSServer } = await import('./websocket-server.js');
         this.wsServer = new WSServer(this.server, {
           settings: this.settings,
           path: this.settings.webSocketPath,

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.2] - 2026-11-02
+
+### Changed
+- Loaded optional packages on demand: Terser and CleanCSS on the first minified response when `MINIFY=true`, and the WebSocket module with `ws` only when `ENABLE_WEBSOCKET=true`. With both off (the defaults), server heap after startup and 300 page requests drops from about 16.1 MB to 10.9 MB; the first minified CSS and JS responses take about 20 ms longer while the minifier loads
+- `media-publisher-cli` and other modules that import `dependencies.js` no longer load the minifiers or `ws`
+
+### Added
+- Added tests that record which optional packages each configuration imports, plus coverage for `MINIFY=true` output and an enabled WebSocket session
+
 ## [4.1.1] - 2026-11-02
 
 ### Fixed

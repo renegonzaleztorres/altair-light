@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 4.1.1 |
+| Altair version | 4.1.2 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -164,6 +164,7 @@ Lib → HTTPServer → WebServer → WebApp
 - `renderHTMLBody(p)` - Process `@@ELEM_`, `@@REPEAT_`, `@@DATA_`, `@@VAR_`, minification, and global replacements
 - `renderCSS(p, context)` - Read CSS, process tags, minify with CleanCSS
 - `renderJS(p, context)` - Read JS, process tags, minify with Terser
+- Optional packages load on demand (`altair/dependencies.js`): CleanCSS and Terser load on the first minified response when `MINIFY=true`, and `websocket-server.js` (with `ws`) loads at startup only when `ENABLE_WEBSOCKET=true`. A disabled feature adds nothing to process memory.
 - `pageNameValidation(p)` - Rejects traversal, malformed paths, and underscore-prefixed segments
 - `handleMissingPage()` - Application policy hook for missing HTML pages only
 - `renderErrorPage()` - Optional private `_404.html`/`_500.html` rendering outside the route cache
@@ -775,7 +776,7 @@ Root object in script:
 
 ## WebSocket Server
 
-Altair includes an optional WebSocket server (`altair/websocket-server.js`) for real-time bidirectional communication, built on the `ws` package. It is disabled by default.
+Altair includes an optional WebSocket server (`altair/websocket-server.js`) for real-time bidirectional communication, built on the `ws` package. It is disabled by default. The module and `ws` are loaded only when WebSockets are enabled.
 
 ### Enabling WebSockets
 

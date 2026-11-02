@@ -1,9 +1,12 @@
 /**
  * WebSocket Server Module for Altair
  * Provides WebSocket server functionality for real-time bidirectional communication
+ *
+ * Loaded on demand by http-server.js only when ENABLE_WEBSOCKET=true, so ws is
+ * imported here directly rather than through dependencies.js.
  */
 
-import { WebSocketServer as WSS } from './dependencies.js';
+import { WebSocketServer as WSS } from 'ws';
 
 // Default session ID pattern:
 // - Starts with alphanumeric character
