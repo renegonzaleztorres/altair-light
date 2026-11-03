@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-11-03
+
+### Security
+- WebSocket sessions are issued by the server. `init` now returns a random `session_id` with a `resume_token`; a client resumes a session only by sending both, and the token rotates on every resume. An ID without its token gets a new session, so a client can no longer take over another session (and its queued messages) by sending its ID
+- Each WebSocket connection may send `init` once, so repeated `init` messages can no longer leak sessions. Rate limits now apply per connection to every message, including `init` and messages sent before it
+- `@@ELEM_` includes are confined to the active space: `@@ELEM_../../.env` and similar paths render `UNDEFINED` with an `Error` readout instead of the file. `@@ELEM_`, `@@DATA_` and `@@REPEAT_` now share one path check that also resolves symbolic links and refuses any `.`-prefixed path segment (`.env`, `.git/`, `.altair/`)
+
+### Changed
+- **WebSocket clients must be updated:** send `{ "type": "init" }`, store the returned `session_id` and `resume_token`, and send both to resume. Messages sent before `init` get an error reply and no longer reach `onWsMessage()`, which therefore always receives a `sessionId`. `sendToSession()` and queuing ignore IDs the server never issued
+- Pages have one canonical URL: trailing-slash variants (`/about/`) redirect `301` to `/about`, and `/home` redirects to `/`, keeping the query string. Previously both rendered, and with the route cache on, one URL could be served the other's `@@VAR_CURRENTPATH`
+- `additionalRoutes()` is registered before the CSS/JS route, so custom routes such as `/api/config.js` are reachable instead of being answered by the asset route
+- `WebApp` passes its constructor options to `WebServer`, so tests can supply settings
+
+### Fixed
+- `@@ELEM_` parameters and `@@REPEAT_` mappings are read with a brace-aware scanner: JSON may nest, contain `}` inside strings and span lines. Invalid or unterminated parameter JSON is reported as an `Error` readout instead of being silently ignored
+- A DATA.json key named `hasOwnProperty` no longer turns every page into a `500`; `__proto__` keys are ignored
+- `@@VAR_constructor`, `@@VAR_toString` and other inherited names render `UNDEFINED` instead of native function text
+- Media publisher: the first `Ctrl+C` or `SIGTERM` aborts the upload in flight, records finished uploads and releases the lock; a lock left by an exited process on the same host is detected and removed; and a failed or interrupted run now records the uploads that succeeded, so they are not uploaded again
+- Space watcher: changes made while a batch is processing now wait for the quiet window (250 ms) instead of the maximum window (2 s), and failed recovery retries back off up to 30 s instead of repeating every 250 ms
+- Invalidation reasons are logged as `space-<reason>` instead of `kinetic-<reason>`
+- Removed a Terser error check that could never run
+- Fixed the starter template's footer include (`globals/_footer.html`)
+
+### Added
+- Tests for each fix: `altair/websocket-server.test.js`, `altair/template-safety.test.js`, `altair/routes.test.js`, plus new cases in the media publisher and space watcher suites
+- `tests/` is tracked in Git, with `tests/site.test.js` rendering the real active space through `WebApp`
+
 ## [4.2.0] - 2026-11-02
 
 ### Added

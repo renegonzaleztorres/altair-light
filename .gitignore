@@ -6,7 +6,6 @@
 # Development Files
 WORKBENCH/*
 !WORKBENCH/README.md
-tests/
 
 # Environment
 .env*

@@ -286,7 +286,7 @@ test('contentChanged follows each route-cache invalidation source', async () => 
 
     await server.startChangeObservation();
     await writeFile(path.join(activePath, 'pages', 'added.html'), PAGE);
-    await waitFor(() => reasons.some((reason) => reason.startsWith('kinetic-') || reason === 'active-space-root-change'));
+    await waitFor(() => reasons.some((reason) => reason.startsWith('space-') || reason === 'active-space-root-change'));
   });
 });
 

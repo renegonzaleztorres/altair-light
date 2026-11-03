@@ -10,9 +10,10 @@ class WebApp extends WebServer{
   // (see extensions/README.md), e.g. static extensions = [googleAnalytics];
   static extensions = [];
 
-  constructor() {
+  // constructor : options pass through to WebServer, so tests can supply settings
+  constructor(options = {}) {
 
-    super();
+    super(options);
 
   } // constructor
 

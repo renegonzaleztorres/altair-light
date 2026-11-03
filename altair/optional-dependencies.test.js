@@ -101,9 +101,11 @@ test('on-demand WebSocket server accepts a session when enabled', { timeout: 150
     const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { Origin: `http://127.0.0.1:${port}` } });
     await once(socket, 'open');
     const reply = once(socket, 'message');
-    socket.send(JSON.stringify({ type: 'init', session_id: 'session-1' }));
+    socket.send(JSON.stringify({ type: 'init' }));
     const [message] = await reply;
-    assert.deepEqual(JSON.parse(message.data), { type: 'connected', session_id: 'session-1' });
+    const connected = JSON.parse(message.data);
+    assert.equal(connected.type, 'connected');
+    assert.ok(server.wsServer.getSession(connected.session_id));
     socket.close();
   } finally {
     await server.shutdown();

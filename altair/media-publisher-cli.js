@@ -68,6 +68,17 @@ const main = async () => {
     }
   });
   const releaseLock = await acquirePublicationLock(configuration.lockPath);
+  // First Ctrl+C (or SIGTERM): abort the upload in flight, record finished
+  // uploads in the manifest, release the lock and exit. A second signal exits
+  // at once; the next run then detects the lock as stale and removes it.
+  const controller = new AbortController();
+  const stop = (signal) => {
+    if (controller.signal.aborted) process.exit(130);
+    console.error(`Received ${signal}; stopping the current upload and releasing the lock...`);
+    controller.abort(new Error(`Interrupted by ${signal}`));
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
   let provider;
   try {
     if (!values['dry-run']) {
@@ -77,13 +88,16 @@ const main = async () => {
     const result = await publishMedia({
       configuration,
       provider,
-      dryRun: values['dry-run']
+      dryRun: values['dry-run'],
+      signal: controller.signal
     });
     if (values.json) console.log(JSON.stringify(result));
     else printHumanResult(result, { dryRun: values['dry-run'] });
   } finally {
     provider?.destroy();
     await releaseLock();
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
   }
 };
 

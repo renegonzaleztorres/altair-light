@@ -345,7 +345,7 @@ class HTTPServer extends Lib {
           this.routeCacheAdmissionSuspended = true;
           const dataResult = await this.attemptDataReload();
           if (!dataResult.applied) return false;
-          const changeReason = rootChanged ? 'active-space-root-change' : `kinetic-${reason}`;
+          const changeReason = rootChanged ? 'active-space-root-change' : `space-${reason}`;
           this.invalidateRouteCache(changeReason);
           await this.extensionRunner?.contentChanged({ reason: changeReason });
           this.routeCacheAdmissionSuspended = false;

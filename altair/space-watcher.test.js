@@ -125,6 +125,62 @@ test('a rejected batch keeps the watcher uncertain and preserves pending paths',
   }
 });
 
+test('changes made while a batch is processing wait for the quiet window, not the maximum', async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-space-during-batch-'));
+  let releaseBatch;
+  let batches = 0;
+  const watcher = new SpaceWatcher({
+    rootPath,
+    quietMs: 20,
+    maxBatchMs: 2000,
+    onBatch: async () => {
+      batches += 1;
+      if (batches === 1) await new Promise((resolve) => { releaseBatch = resolve; });
+      return true;
+    }
+  });
+
+  try {
+    watcher.snapshot = await watcher.buildSnapshot();
+    watcher.markDirty('one.html');
+    await waitFor(() => typeof releaseBatch === 'function');
+    watcher.markDirty('two.html');
+    await new Promise((resolve) => setTimeout(resolve, 60)); // the quiet timer fires during the batch
+    releaseBatch();
+    const releasedAt = Date.now();
+    await waitFor(() => batches === 2 && watcher.dirty === false, 1500);
+    assert.ok(Date.now() - releasedAt < 500, `second batch took ${Date.now() - releasedAt} ms`);
+  } finally {
+    watcher.close();
+    await rm(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('failed recovery retries back off instead of repeating every quiet window', async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-space-backoff-'));
+  let attempts = 0;
+  const watcher = new SpaceWatcher({
+    rootPath,
+    quietMs: 10,
+    maxBatchMs: 50,
+    onBatch: async ({ reason }) => {
+      if (reason.startsWith('recovery-')) attempts += 1;
+      return false;
+    }
+  });
+
+  try {
+    watcher.snapshot = await watcher.buildSnapshot();
+    await watcher.handleUncertain('test', new Error('invalid DATA.json'));
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    // Without backoff this is about 70 attempts; with doubling it is 6 (10+20+...+320 ms)
+    assert.ok(attempts >= 3 && attempts <= 8, `attempts: ${attempts}`);
+  } finally {
+    watcher.close();
+    await rm(rootPath, { recursive: true, force: true });
+  }
+});
+
 test('enabled reconciliation owns a configured recurring timer and close removes it', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'altair-space-timer-'));
   const watcher = new SpaceWatcher({

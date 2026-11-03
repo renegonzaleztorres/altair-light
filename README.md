@@ -299,6 +299,92 @@ for provider settings, security constraints, and operational details.
 The Altair HTTP tests use a minimal test-only server and do not execute the
 application's root `index.js` or custom `WebApp` startup behavior.
 
+### Project tests (`tests/`)
+
+`tests/` belongs to this project. Altair's own tests stay in `altair/` and
+extension tests in `extensions/`, so updating Altair never touches `tests/`.
+The folder is tracked in Git.
+
+- Any file ending in `.test.js` anywhere under `tests/` (subfolders included)
+  runs with `pnpm test:app` and as part of `pnpm test`.
+- Tests use Node's built-in `node:test` and `node:assert`; there is no test
+  framework to install.
+- Requests go to the app in memory with `app.app.request(url)`, so no port is
+  opened and tests run in milliseconds.
+
+`tests/site.test.js` is the starter smoke test. It renders the real active
+space through the real `WebApp` and checks that:
+
+- `/` returns `200` with no `UNDEFINED` and no unresolved `@@` tag;
+- `/css/styles.css` and `/js/scripts.js` return `200` (adjust these paths if
+  the project serves its CSS and JavaScript differently);
+- an unknown page returns the `404` page.
+
+Add your own test files next to it, for example `tests/routes/api.test.js` or
+`tests/content/blog.test.js`.
+
+**Helpers** in `altair/test/helpers.js`:
+
+| Helper | Use it to |
+| --- | --- |
+| `createTestSettings({ ... })` | Build settings for the real `WebApp` and the real active space. Uses Altair defaults plus the values you pass, with `NODE_ENV=development`; it does not read `.env` or `config/*.json`. |
+| `createExtensionTestServer({ pages, files, data, App, ... })` | Build a throwaway space in a temporary folder, for testing a route, template or extension without touching real content. Returns `{ request, cleanup }`. |
+
+A minimal test of a real page (change `/` to any page in your space):
+
+```js
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createTestSettings } from '../altair/test/helpers.js';
+import WebApp from '../web-app/web-app.js';
+
+test('the home page renders', async () => {
+  const app = new WebApp({ settings: createTestSettings({ enableDataWatch: false }) });
+  await app.setupExtensions();
+  await app.prepare(); // everything start() does except watching and listening
+  try {
+    const response = await app.app.request('http://altair.test/');
+    assert.equal(response.status, 200);
+  } finally {
+    await app.shutdown();
+  }
+});
+```
+
+A test of a custom route against a throwaway space:
+
+```js
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import WebServer from '../altair/altair.js';
+import { createExtensionTestServer } from '../altair/test/helpers.js';
+
+test('the health route answers', async () => {
+  class App extends WebServer {
+    additionalRoutes() {
+      this.app.get('/api/health', (context) => context.json({ ok: true }));
+    }
+  }
+  const { request, cleanup } = await createExtensionTestServer({ App });
+  try {
+    assert.deepEqual(await (await request('/api/health')).json(), { ok: true });
+  } finally {
+    await cleanup();
+  }
+});
+```
+
+**When to run them.** Tests run before a deploy, never on the production
+server:
+
+1. Before every code deploy, run `pnpm test` (in CI or locally) against the
+   exact code and content being shipped, and stop the deploy if it fails.
+2. Content-only deploys (pages, includes, DATA.json synced without a code
+   release) are where broken includes and `UNDEFINED` come from, so run at
+   least `pnpm test:app` before syncing.
+3. After deploying, check production over HTTP instead (for example, request
+   `/` and expect `200`), and roll back if it fails.
+
 ## Documentation
 
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — This project’s application architecture, custom integration, content model, and deployment decisions

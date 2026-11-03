@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 4.2.0 |
+| Altair version | 4.3.0 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -173,7 +173,7 @@ Lib → HTTPServer → WebServer → WebApp
 - `renderErrorPage()` - Optional private `_404.html`/`_500.html` rendering outside the route cache
 - `varDefinitions()` - Returns {year, timestamp, ts, currentpath} + extension vars + additionalVarDefinitions() + flattened DATA.json vars
 - `additionalVarDefinitions()` - Override for custom variables
-- `additionalRoutes()` - Override for custom routes
+- `additionalRoutes()` - Override for custom routes; registered before the CSS/JS route, so custom paths ending in `.css` or `.js` are reachable
 - `listPublicPages()` - Public page routes in the active space; backs the extension `site.listPages()`
 
 **WebApp** (`web-app/web-app.js`): Application customization
@@ -242,7 +242,11 @@ preserved. Altair never proxies remote media bytes.
   through Tarazed on demand. They retain the error status, are marked
   `no-store` and `noindex`, and never enter the route cache. If an error page
   fails, Altair immediately uses a dependency-free fallback without recursion.
-- Error responses omit bodies for `HEAD`. Redirects remain available only
+- Each page has one canonical URL: `/about/` (any number of trailing
+  slashes) redirects `301` to `/about`, and `/home` to `/`, keeping the query
+  string. Pages render and cache only under the canonical path, so
+  `@@VAR_CURRENTPATH` always matches the cache key.
+- Error responses omit bodies for `HEAD`. Other redirects remain available only
   through explicit application decisions; `307` and `308` are recommended.
 
 An application may override `handleMissingPage(context, { path, reason })` to
@@ -284,7 +288,10 @@ authorization values, or ETags. The diagnostics are silent by default.
 when both route caching and `ROUTE_CACHE_WATCH` are enabled. It batches rapid
 events, blocks new cache admission while changes settle, safely reloads
 DATA.json, refreshes its in-memory metadata snapshot, and invalidates once per
-accepted batch. Optional reconciliation periodically compares that snapshot;
+accepted batch. Changes made while a batch is processing start a new quiet
+window. When recovery keeps failing (for example while DATA.json is invalid),
+retries back off from the quiet window up to 30 seconds and reset after a
+successful recovery. Optional reconciliation periodically compares that snapshot;
 the snapshot contains paths and file metadata only and is never persisted.
 The configured `<PUBLIC_LOCATION>/<MEDIA_LOCATION>` subtree and `.altair`
 operational directory are automatically excluded because their changes cannot
@@ -348,8 +355,16 @@ allowed media from file signatures, hashes through streams, and compares
 SHA-256 values with the shared manifest. New and edited objects upload;
 unchanged objects skip; manifest-only remote objects remain. A manifest entry
 is updated only after the adapter verifies remote key, byte size, content type,
-and stored SHA-256 metadata. The complete manifest is atomically replaced only
-after a successful batch. Publication never removes local or remote objects.
+and stored SHA-256 metadata. The manifest is replaced atomically after the
+batch, and also when a batch fails or is interrupted, so uploads that already
+succeeded are recorded and not repeated on the next run.
+
+The first `Ctrl+C` (or `SIGTERM`) aborts the upload in flight, writes that
+checkpoint, releases `.altair/media-publication.lock` and exits; a second
+signal exits at once. The lock records its PID and host. A later run removes a
+lock whose process on this host has exited, and refuses a lock held by a live
+process, a lock from another host, or an unreadable lock (delete it by hand
+only when no publication is running). Publication never removes local or remote objects.
 Provider-neutral `MEDIA_PUBLISH_*` credentials are scoped to this command and
 passed explicitly to the adapter; global AWS SDK credential variables are not
 used.
@@ -378,7 +393,7 @@ serves as a media proxy.
 ### Tag Types
 
 **`@@ELEM_path/file.html`** - Include file (case-insensitive tag, recursive)
-- Optional params: `@@ELEM_path/file.html;{"Key":"value"}`
+- Optional params: `@@ELEM_path/file.html;{"Key":"value"}`. The JSON may nest, contain `}` inside strings, and span lines; invalid or unterminated JSON is reported as an `Error` readout and the include renders without parameters
 - Path relative to `activeSpace`
 - On error: `'UNDEFINED'`
 - Direct or indirect include cycles terminate as `'UNDEFINED'`; nesting is bounded to 50 expansion passes
@@ -401,7 +416,7 @@ serves as a media proxy.
 - Path traversal supports dot + array index: `team.members[0].name`
 - On missing/invalid lookup: controlled by `behavior` (`strict|empty|null|default|pass`)
 - `raw=true`: outputs JSON text with `JSON.stringify(...)` (recommended for `<script>` embedding)
-- Security: JSON path must resolve inside the active space and use `.json` extension
+- Security: JSON path must resolve inside the active space and use `.json` extension (see **Path containment** below)
 
 **`@@REPEAT_component/path.html;data/file.json#items`** - Repeat a component for each array item
 - Optional explicit `@@DATA_` source: `@@REPEAT_component/path.html;@@DATA_data/file.json#items`
@@ -409,6 +424,18 @@ serves as a media proxy.
 - Without mapping: object item keys become params directly (`item.title` -> `@@PARAM_title`)
 - Built-in params per row: `index` (0-based), `number` (1-based)
 - `data/file.json#items` must resolve to an array; fallback behavior uses the same `behavior` modifiers as `@@DATA_`
+
+**Path containment.** `@@ELEM_`, `@@DATA_` and `@@REPEAT_` share one rule: a
+path must be relative, must stay inside the active space after resolving `..`
+and symbolic links, and may not contain a segment starting with `.` (so
+`.env`, `.git/` and `.altair/` never render). A path that breaks the rule
+renders `'UNDEFINED'` (or the `behavior` fallback for `@@DATA_` and
+`@@REPEAT_`) and logs an `Error` readout. Symbolic links that point to another
+file inside the space still work.
+
+`@@VAR_` resolves only variables that are actually defined, never inherited
+object members: `@@VAR_constructor` renders `'UNDEFINED'`. DATA.json keys named
+`hasOwnProperty` work like any other key, and `__proto__` keys are ignored.
 
 Every tag is replaced as one complete parser match. A shorter name such as
 `date` cannot consume the beginning of `dateDisplay`, regardless of which token
@@ -456,9 +483,10 @@ spaces/[ACTIVE_SPACE]/
 - **Components:** `components/[name]/_[name].html`
 
 ### Route Mapping
-- `pages/home.html` → `/` and `/home`
+- `pages/home.html` → `/` (`/home` redirects to `/`)
 - `pages/about.html` → `/about`
 - `pages/blog/post.html` → `/blog/post`
+- Trailing slashes redirect: `/about/` → `/about`
 - Any route segment starting with `_` → `404` (private)
 - Optional `pages/_404.html` and `pages/_500.html` → error presentation only,
   never public `200` routes
@@ -811,7 +839,7 @@ start() → prepare()
   initialize()             the app's onSettingsReady() runs after every extension's setup
   DATA loaded
   cors → extension middleware → static files → media fallback
-  extension routes → routes(): "/" → CSS/JS → additionalRoutes() → page catch-all
+  extension routes → routes(): "/" → additionalRoutes() → CSS/JS → page catch-all
 → watchers → listening
 (any failure: shutdown(), including the extensions already set up, then start() rejects)
 
@@ -990,7 +1018,7 @@ WEBSOCKET_ALLOWED_ORIGINS="same-origin"
 
 When enabled, `HTTPServer.start()` creates a `WSServer` instance attached to the Node.js HTTP server returned by Hono's adapter. The WebSocket server is available as `this.wsServer` in any subclass.
 
-**Session model:** Clients send an `init` message with a `session_id`. The server maps sessions to WebSocket connections, enabling message queuing for temporarily disconnected clients and session reconnection.
+**Session model:** The server issues session IDs. A client sends `init` once per connection and receives a `session_id` and a `resume_token`. To resume after a reconnect, the client sends both back; the server then restores the session, delivers queued messages, and issues a new token (each token works once). An ID without its matching token gets a new session, so knowing or guessing an ID never grants access to it. To tie a session to a signed-in user, authenticate in `onWsMessage()` and keep your own mapping from user to session ID.
 
 ### Handling Messages
 
@@ -1004,7 +1032,7 @@ onWsMessage(sessionId, message, ws) {
 }
 ```
 
-This handler receives all messages except built-in types (`init`, `ping`).
+This handler receives all messages except built-in types (`init`, `ping`), and only from connections that have sent `init`, so `sessionId` is always set. Messages sent before `init` get an `error` reply.
 
 ### Client Connection
 
@@ -1012,24 +1040,28 @@ This handler receives all messages except built-in types (`init`, `ping`).
 const ws = new WebSocket('ws://localhost:3000/ws');
 
 ws.onopen = () => {
-  ws.send(JSON.stringify({ type: 'init', session_id: 'user-abc123' }));
+  // Resume the previous session if this tab has one; otherwise start a new one
+  const saved = JSON.parse(sessionStorage.getItem('altair-ws') || '{}');
+  ws.send(JSON.stringify({ type: 'init', session_id: saved.session_id, resume_token: saved.resume_token }));
 };
 
 ws.onmessage = (event) => {
   const msg = JSON.parse(event.data);
   if (msg.type === 'connected') {
-    console.log('Session established:', msg.session_id);
+    // The token rotates on every resume, so always store the latest pair
+    sessionStorage.setItem('altair-ws', JSON.stringify({ session_id: msg.session_id, resume_token: msg.resume_token }));
+    console.log(msg.resumed ? 'Session resumed:' : 'Session started:', msg.session_id);
   }
 };
 ```
 
-**Session ID rules:** 3-64 characters, must start with alphanumeric, may contain alphanumeric, underscore, or hyphen.
+Store the resume token like a session cookie: `sessionStorage` scopes it to the tab and clears it when the tab closes.
 
 ### Server API (`this.wsServer`)
 
 | Method | Description |
 |--------|-------------|
-| `sendToSession(sessionId, data)` | Send to session (queues if disconnected) |
+| `sendToSession(sessionId, data)` | Send to session (queues if disconnected; ignored for IDs the server never issued) |
 | `broadcast(data)` | Send to all connected clients |
 | `isConnected(sessionId)` | Check if session has active connection |
 | `getConnectedSessions()` | List all connected session IDs |
@@ -1039,7 +1071,9 @@ ws.onmessage = (event) => {
 ### Built-in Security
 
 - **Origin validation** — configurable per environment
-- **Rate limiting** — 30 messages per 10-second window per session
+- **Server-issued sessions** — random session IDs; resuming requires the matching one-time resume token
+- **One `init` per connection** — a second `init` on the same connection is rejected
+- **Rate limiting** — 30 messages per 10-second window per connection, `init` included
 - **Message size limit** — 64KB max payload
 - **Queue size limit** — 100 queued messages per session (FIFO eviction)
 - **Session TTL** — expired disconnected sessions auto-cleaned (default 1 hour)
@@ -1050,14 +1084,14 @@ ws.onmessage = (event) => {
 **Client → Server:**
 | Type | Payload | Purpose |
 |------|---------|---------|
-| `init` | `{ type: "init", session_id: "..." }` | Register session |
+| `init` | `{ type: "init" }`, or `{ type: "init", session_id: "...", resume_token: "..." }` to resume | Start or resume a session |
 | `ping` | `{ type: "ping" }` | Application-level keepalive |
 | Custom | `{ type: "yourtype", ... }` | Routed to `onWsMessage()` |
 
 **Server → Client:**
 | Type | Payload | Purpose |
 |------|---------|---------|
-| `connected` | `{ type: "connected", session_id: "..." }` | Session confirmed |
+| `connected` | `{ type: "connected", session_id: "...", resume_token: "...", resumed: true\|false }` | Session started or resumed |
 | `pong` | `{ type: "pong" }` | Ping reply |
 | `error` | `{ type: "error", error: "..." }` | Validation/rate limit error |
 
@@ -1144,7 +1178,7 @@ Override `additionalRoutes()` in `web-app/web-app.js`; use Hono methods such as 
 
 **"UNDEFINED" in page:** Check tag spelling, verify file exists, ensure variable defined, set `DEBUG=true`
 
-**Component not rendering:** Verify path relative to `activeSpace`, check `@@PARAM_` names match (case-sensitive), ensure valid JSON in `@@ELEM_`
+**Component not rendering:** Verify path relative to `activeSpace` (paths that leave the space or contain a `.`-prefixed segment are refused), check `@@PARAM_` names match (case-sensitive), ensure valid JSON in `@@ELEM_` (errors appear as `Error` readouts)
 
 **Page returns 404:** Ensure no route segment starts with `_`, check the file in `{activeSpace}/pages/`, and verify `PAGES_LOCATION` in `.env`
 

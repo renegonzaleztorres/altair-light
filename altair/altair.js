@@ -49,6 +49,10 @@ class WebServer extends HTTPServer {
       return this.renderHTML('home', context, { coreRoute: true });
     });
 
+    // Additional routes definitions (before the CSS/JS route, so custom routes
+    // ending in .css or .js, such as /api/config.js, are reachable)
+    this.additionalRoutes();
+
     // CSS and JS scripts
     this.app.get('*', (context, next) => {
       const requestPath = context.req.path;
@@ -63,9 +67,6 @@ class WebServer extends HTTPServer {
       return next();
     }); // get
 
-    // Additional routes definitions
-    this.additionalRoutes();
-
     // HTML pages and "catch all"
     this.app.get('*', (context) => {
       this.readout(`path: ${context.req.path}`, 'Request-CatchAll');
@@ -76,12 +77,26 @@ class WebServer extends HTTPServer {
           resourceType: 'resource'
         });
       }
+      const canonicalPath = this.canonicalPagePath(context.req.path);
+      if (canonicalPath !== context.req.path) {
+        const url = new URL(context.req.url);
+        return this.redirects(301, `${canonicalPath}${url.search}`, context);
+      }
       return this.renderHTML(context.req.path, context, { coreRoute: true });
     }); // get
 
     return;
 
   } // routes
+
+  // canonicalPagePath : the one URL a page is served and cached under, without a
+  // trailing slash and with /home as /, so variants redirect instead of rendering twice
+  canonicalPagePath(requestPath) {
+
+    const trimmed = requestPath.replace(/\/+$/, '') || '/';
+    return trimmed === '/home' ? '/' : trimmed;
+
+  } // canonicalPagePath
 
   // additionalRoutes : definitions (override as needed)
   additionalRoutes() {
@@ -368,9 +383,7 @@ class WebServer extends HTTPServer {
       data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath: p }));
       if (this.settings.minify) { // Minify JS, when specified
         const { minify } = await loadTerser();
-        let minified = await minify(data);
-        if (minified.error)
-          throw new Error(`JS minification error(s) > ${minified.error.message}`);
+        const minified = await minify(data); // terser 5 throws on errors; the catch below handles them
         data = minified.code;
       } // if
       if (this.extensionRunner) data = await this.extensionRunner.transform('js', data, { path: p });

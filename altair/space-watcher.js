@@ -45,6 +45,7 @@ class SpaceWatcher {
     this.maxBatchTimer = null;
     this.reconcileTimer = null;
     this.recoveryTimer = null;
+    this.recoveryAttempts = 0;
   }
 
   normalizeRelativePath(value = '') {
@@ -145,11 +146,27 @@ class SpaceWatcher {
     if (!this.dirty) {
       this.dirty = true;
       this.onDirty({ reason });
-      this.maxBatchTimer = setTimeout(() => void this.processBatch('maximum-window'), this.maxBatchMs);
+      this.scheduleMaxBatchTimer();
     }
 
     if (this.quietTimer) clearTimeout(this.quietTimer);
-    this.quietTimer = setTimeout(() => void this.processBatch('quiet-window'), this.quietMs);
+    this.scheduleQuietTimer();
+  }
+
+  // Timer callbacks clear their own handle first, so a timer that fired while a
+  // batch was processing never blocks scheduling the next quiet window.
+  scheduleQuietTimer() {
+    this.quietTimer = setTimeout(() => {
+      this.quietTimer = null;
+      void this.processBatch('quiet-window');
+    }, this.quietMs);
+  }
+
+  scheduleMaxBatchTimer() {
+    this.maxBatchTimer = setTimeout(() => {
+      this.maxBatchTimer = null;
+      void this.processBatch('maximum-window');
+    }, this.maxBatchMs);
   }
 
   async processBatch(reason = 'native-event') {
@@ -184,10 +201,8 @@ class SpaceWatcher {
       this.uncertain = false;
       if (rootChanged) this.attachNativeWatcher();
       if (this.dirty) {
-        if (!this.quietTimer) {
-          this.quietTimer = setTimeout(() => void this.processBatch('quiet-window'), this.quietMs);
-        }
-        this.maxBatchTimer = setTimeout(() => void this.processBatch('maximum-window'), this.maxBatchMs);
+        if (!this.quietTimer) this.scheduleQuietTimer();
+        if (!this.maxBatchTimer) this.scheduleMaxBatchTimer();
       }
       this.readout(`Accepted change batch (${changedPaths.length} paths)`, 'Space-Watch');
       return true;
@@ -221,6 +236,7 @@ class SpaceWatcher {
       this.pendingPaths.clear();
       this.dirty = false;
       this.uncertain = false;
+      this.recoveryAttempts = 0;
       this.clearBatchTimers();
       this.readout(`Snapshot refreshed (${reason}, ${nextSnapshot.files.size} paths)`, 'Space-Watch');
       return changed;
@@ -251,10 +267,14 @@ class SpaceWatcher {
     this.onUncertain({ reason, error });
     this.readout(`${reason}: ${error?.message || 'unknown watcher error'}`, 'Space-Error');
     if (!this.recoveryTimer) {
+      // Back off while recovery keeps failing (for example, DATA.json stays
+      // invalid): quietMs, doubling up to 30 s, reset by a successful recovery.
+      const delay = Math.min(this.quietMs * (2 ** this.recoveryAttempts), Math.max(this.quietMs, 30000));
+      this.recoveryAttempts += 1;
       this.recoveryTimer = setTimeout(() => {
         this.recoveryTimer = null;
         void this.recover(reason);
-      }, this.quietMs);
+      }, delay);
     }
   }
 
@@ -279,6 +299,7 @@ class SpaceWatcher {
       this.pendingPaths.clear();
       this.dirty = false;
       this.uncertain = false;
+      this.recoveryAttempts = 0;
       this.attachNativeWatcher();
       this.readout(`Watcher recovered (${reason})`, 'Space-Watch');
       return true;

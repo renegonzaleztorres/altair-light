@@ -34,6 +34,91 @@ class Tarazed {
   // escapeRegex : escape RegExp metacharacters in dynamic strings
   escapeRegex = (value) => String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+  // resolveSpacePath : resolve a template-supplied path inside the space, or null.
+  // Rejects empty and absolute paths, paths that leave the space, and any
+  // segment starting with "." (.env, .altair/, ..), so hidden files never render.
+  resolveSpacePath = (rawPath) => {
+    const relativePath = String(rawPath || '').replace(/\\/g, '/').trim();
+    if (relativePath === '' || path.isAbsolute(relativePath) || relativePath.split('/').some((segment) => segment.startsWith('.') && segment !== '.')) {
+      return null;
+    }
+
+    const root = path.resolve(this.appPath);
+    const resolvedPath = path.resolve(root, relativePath);
+    if (!resolvedPath.startsWith(root + path.sep)) {
+      return null;
+    }
+
+    return resolvedPath;
+  } // resolveSpacePath
+
+  // readSpaceFile : read a file resolved by resolveSpacePath, refusing symlinks
+  // whose real target is outside the space
+  readSpaceFile = async (resolvedPath) => {
+    const [realRoot, realPath] = await Promise.all([fs.realpath(this.appPath), fs.realpath(resolvedPath)]);
+    if (!realPath.startsWith(realRoot + path.sep)) {
+      throw new Error('path resolves outside the active space');
+    }
+    return fs.readFile(realPath, 'utf8');
+  } // readSpaceFile
+
+  // scanJsonObject : index just past the JSON object that opens at s[start],
+  // tracking brace depth and string quoting, or -1 when it never closes
+  scanJsonObject = (s, start) => {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < s.length; i += 1) {
+      const c = s[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (c === '\\') escaped = true;
+        else if (c === '"') inString = false;
+      } else if (c === '"') {
+        inString = true;
+      } else if (c === '{') {
+        depth += 1;
+      } else if (c === '}') {
+        depth -= 1;
+        if (depth === 0) return i + 1;
+      }
+    }
+    return -1;
+  } // scanJsonObject
+
+  // findTagTokens : tokens matching headPattern (a global RegExp), each
+  // extended by an optional ;{...} JSON object, which may nest or span lines
+  findTagTokens = (s, headPattern) => {
+    const tokens = [];
+    headPattern.lastIndex = 0;
+    let match;
+    while ((match = headPattern.exec(s)) !== null) {
+      let end = match.index + match[0].length;
+      if (s[end] === ';' && s[end + 1] === '{') {
+        const jsonEnd = this.scanJsonObject(s, end + 1);
+        if (jsonEnd > 0) {
+          end = jsonEnd;
+        } else if (this.readoutCallback !== null) {
+          this.readoutCallback(`Unterminated parameter JSON after ${match[0]}`, 'Error');
+        }
+      }
+      tokens.push({ start: match.index, end, text: s.slice(match.index, end) });
+      headPattern.lastIndex = end;
+    }
+    return tokens;
+  } // findTagTokens
+
+  // replaceTagTokens : replace each token found by findTagTokens
+  replaceTagTokens = (s, tokens, replace) => {
+    let result = '';
+    let last = 0;
+    for (const token of tokens) {
+      result += s.slice(last, token.start) + replace(token.text);
+      last = token.end;
+    }
+    return result + s.slice(last);
+  } // replaceTagTokens
+
   // replaceElemTags : replace element tags in a string with content from file on disk
   // Example: @@ELEM_globals/_nav.html;{"Class":"color-secondary"}
   // - @@ELEM_ is the prefix
@@ -47,20 +132,20 @@ class Tarazed {
 
     if (typeof s !== 'string'){ return s; }
     let strng = s;
-    const pattern = new RegExp(`${this.escapeRegex(this.elemTagPrefix)}[a-zA-Z0-9_.\\-\\/\\\\]*(?:;\\{.*?\\})?`, 'gi'); // Matches any alphanumeric chars., underscores, periods, forward slashes & backslashes that immediately follow the prefix, and optional ;{...}
+    const pattern = new RegExp(`${this.escapeRegex(this.elemTagPrefix)}[a-zA-Z0-9_.\\-\\/\\\\]*`, 'gi'); // Matches any alphanumeric chars., underscores, periods, forward slashes & backslashes that immediately follow the prefix; findTagTokens adds an optional ;{...}
     const seenTokenStates = new Set();
     const maxPasses = 50;
 
     for (let pass = 0; pass < maxPasses; pass += 1) {
-      const matches = strng.match(pattern);
-      if (!matches || matches.length === 0) return strng;
+      const tokens = this.findTagTokens(strng, pattern);
+      if (tokens.length === 0) return strng;
 
-      const uniqueMatches = new Set(matches);
+      const uniqueMatches = new Set(tokens.map((token) => token.text));
       const tokenState = [...uniqueMatches].sort().join('\0');
       if (seenTokenStates.has(tokenState)) {
         if (this.readoutCallback !== null)
           this.readoutCallback('Cyclic element inclusion detected', 'Error');
-        return strng.replace(pattern, () => 'UNDEFINED');
+        return this.replaceTagTokens(strng, tokens, () => 'UNDEFINED');
       }
       seenTokenStates.add(tokenState);
 
@@ -73,15 +158,18 @@ class Tarazed {
           fp = t.slice(0, separatorIndex);
           o = t.slice(separatorIndex + 1);
         } // if
-        let f = fp.replace(new RegExp(`^${this.escapeRegex(this.elemTagPrefix)}`, 'i'), ''); // Prefix removal
-        f = path.join(this.appPath, f);
+        const f = fp.replace(new RegExp(`^${this.escapeRegex(this.elemTagPrefix)}`, 'i'), ''); // Prefix removal
         try {
-          let d = await fs.readFile(f, 'utf8'); // UTF-8: (8-bit Unicode Transformation Format)
+          const resolvedPath = this.resolveSpacePath(f);
+          if (!resolvedPath) throw new Error('path is outside the active space or hidden');
+          let d = await this.readSpaceFile(resolvedPath); // UTF-8: (8-bit Unicode Transformation Format)
           if (o) {
-            try{
-              let params = JSON.parse(o);
-              d = this.replaceParamTags(d, params);
-            } catch{}
+            try {
+              d = this.replaceParamTags(d, JSON.parse(o));
+            } catch (err) {
+              if (this.readoutCallback !== null)
+                this.readoutCallback(`Invalid parameter JSON in ${fp} > ${err.message}`, 'Error');
+            }
           } // if
           replacements.set(t, d);
         } catch (err) {
@@ -91,12 +179,12 @@ class Tarazed {
         } // try
       } // for
 
-      strng = strng.replace(pattern, (token) => replacements.get(token) ?? token);
+      strng = this.replaceTagTokens(strng, tokens, (token) => replacements.get(token) ?? token);
     } // for
 
     if (this.readoutCallback !== null)
       this.readoutCallback(`Element nesting exceeded ${maxPasses} passes`, 'Error');
-    return strng.replace(pattern, () => 'UNDEFINED');
+    return this.replaceTagTokens(strng, this.findTagTokens(strng, pattern), () => 'UNDEFINED');
 
   } // replaceElemTags
 
@@ -159,20 +247,7 @@ class Tarazed {
   } // parseRepeatTag
 
   // normalizeTemplateFilePath : normalize, validate and resolve template path
-  normalizeTemplateFilePath = (rawTemplatePath) => {
-    const relativePath = String(rawTemplatePath || '').replace(/\\/g, '/').trim();
-    if (relativePath === '' || path.isAbsolute(relativePath)) {
-      return null;
-    }
-
-    const resolvedPath = path.resolve(this.appPath, relativePath);
-    const appRoot = path.resolve(this.appPath) + path.sep;
-    if (!(resolvedPath + path.sep).startsWith(appRoot) && resolvedPath !== path.resolve(this.appPath)) {
-      return null;
-    }
-
-    return resolvedPath;
-  } // normalizeTemplateFilePath
+  normalizeTemplateFilePath = (rawTemplatePath) => this.resolveSpacePath(rawTemplatePath)
 
   // asParamValue : shape value for @@PARAM_ replacement
   asParamValue = (value) => {
@@ -235,13 +310,13 @@ class Tarazed {
 
     let strng = s;
     const repeatPrefix = this.escapeRegex(this.repeatTagPrefix);
-    const pattern = new RegExp(`${repeatPrefix}[a-zA-Z0-9_.\\-\\/\\\\]+;[^\\s"'<>;,)\\}|]+(?:;\\{.*?\\})?`, 'gi');
-    const matches = strng.match(pattern);
-    if (!matches) {
+    const pattern = new RegExp(`${repeatPrefix}[a-zA-Z0-9_.\\-\\/\\\\]+;[^\\s"'<>;,)\\}|]+`, 'gi'); // findTagTokens adds an optional ;{...} mapping
+    const tokens = this.findTagTokens(strng, pattern);
+    if (tokens.length === 0) {
       return strng;
     }
 
-    const uniqueMatches = new Set(matches);
+    const uniqueMatches = new Set(tokens.map((token) => token.text));
     const dataFileCache = new Map();
     const templateCache = new Map();
     const replacements = new Map();
@@ -268,7 +343,7 @@ class Tarazed {
             if (dataFileCache.has(normalizedDataPath)) {
               jsonData = dataFileCache.get(normalizedDataPath);
             } else {
-              const fileContents = await fs.readFile(normalizedDataPath, 'utf8');
+              const fileContents = await this.readSpaceFile(normalizedDataPath);
               jsonData = JSON.parse(fileContents);
               dataFileCache.set(normalizedDataPath, jsonData);
             }
@@ -281,7 +356,7 @@ class Tarazed {
               if (templateCache.has(normalizedTemplatePath)) {
                 templateText = templateCache.get(normalizedTemplatePath);
               } else {
-                const rawTemplate = await fs.readFile(normalizedTemplatePath, 'utf8');
+                const rawTemplate = await this.readSpaceFile(normalizedTemplatePath);
                 templateText = await this.replaceElemTags(rawTemplate);
                 templateCache.set(normalizedTemplatePath, templateText);
               }
@@ -305,7 +380,7 @@ class Tarazed {
       replacements.set(token, replacement);
     }
 
-    return strng.replace(pattern, (token) => replacements.get(token) ?? token);
+    return this.replaceTagTokens(strng, tokens, (token) => replacements.get(token) ?? token);
   } // replaceRepeatTags
 
   // parseDataTag : parse @@DATA_ token into parts
@@ -372,18 +447,8 @@ class Tarazed {
 
   // normalizeDataFilePath : normalize, validate and resolve data file path
   normalizeDataFilePath = (rawFilePath) => {
-    const relativePath = String(rawFilePath || '').replace(/\\/g, '/').trim();
-    if (relativePath === '' || path.isAbsolute(relativePath)) {
-      return null;
-    }
-
-    const resolvedPath = path.resolve(this.appPath, relativePath);
-    const appRoot = path.resolve(this.appPath) + path.sep;
-    if (!(resolvedPath + path.sep).startsWith(appRoot) && resolvedPath !== path.resolve(this.appPath)) {
-      return null;
-    }
-
-    if (path.extname(resolvedPath).toLowerCase() !== '.json') {
+    const resolvedPath = this.resolveSpacePath(rawFilePath);
+    if (!resolvedPath || path.extname(resolvedPath).toLowerCase() !== '.json') {
       return null;
     }
 
@@ -510,7 +575,7 @@ class Tarazed {
             if (fileCache.has(normalizedPath)) {
               jsonData = fileCache.get(normalizedPath);
             } else {
-              const fileContents = await fs.readFile(normalizedPath, 'utf8');
+              const fileContents = await this.readSpaceFile(normalizedPath);
               jsonData = JSON.parse(fileContents);
               fileCache.set(normalizedPath, jsonData);
             }
@@ -561,7 +626,7 @@ class Tarazed {
     const pattern = new RegExp(`${this.escapeRegex(this.varTagPrefix)}[\\w-]+`, 'gi'); // Matches ONLY alphanumeric chars, underscores and hyphens that immediately follow the prefix
     return s.replace(pattern, (token) => {
       const key = token.replace(new RegExp(`^${this.escapeRegex(this.varTagPrefix)}`, 'i'), '').toLowerCase(); // Prefix removal
-      return vD[key] ?? 'UNDEFINED';
+      return Object.hasOwn(vD, key) ? vD[key] ?? 'UNDEFINED' : 'UNDEFINED'; // Own keys only: @@VAR_constructor is not a variable
     });
 
   } // replaceVarTags

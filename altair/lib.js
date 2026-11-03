@@ -42,7 +42,9 @@ class Lib {
   flattenObject = (obj, prefix = '', result = {}) => {
 
     for (let key in obj) {
-      if (obj.hasOwnProperty(key)) {
+      // Object.hasOwn: DATA.json may define its own "hasOwnProperty" key.
+      // "__proto__" is skipped so JSON input can never replace a prototype.
+      if (Object.hasOwn(obj, key) && key !== '__proto__') {
         const lowercaseKey = key.toLowerCase();
         const newKey = prefix ? `${prefix}_${lowercaseKey}` : lowercaseKey;
         const value = obj[key];
@@ -70,7 +72,7 @@ class Lib {
     const result = { ...target };
 
     for (let key in source) {
-      if (source.hasOwnProperty(key)) {
+      if (Object.hasOwn(source, key) && key !== '__proto__') {
         const sourceValue = source[key];
         const targetValue = result[key];
 

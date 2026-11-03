@@ -22,7 +22,8 @@ class S3MediaProvider {
     });
   }
 
-  async uploadAndVerify({ filePath, objectKey, size, contentType, sha256, cacheControl }) {
+  // uploadAndVerify : signal (optional AbortSignal) aborts the multipart upload in flight
+  async uploadAndVerify({ filePath, objectKey, size, contentType, sha256, cacheControl, signal }) {
     const upload = new Upload({
       client: this.client,
       params: {
@@ -38,12 +39,22 @@ class S3MediaProvider {
       partSize: 8 * 1024 * 1024,
       leavePartsOnError: false
     });
-    await upload.done();
+    const abortUpload = () => void upload.abort().catch(() => {});
+    signal?.addEventListener('abort', abortUpload, { once: true });
+    try {
+      await upload.done();
+    } catch (error) {
+      signal?.throwIfAborted(); // report the interruption, not the SDK's abort error
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', abortUpload);
+    }
+    signal?.throwIfAborted();
 
     const remote = await this.client.send(new HeadObjectCommand({
       Bucket: this.configuration.bucket,
       Key: objectKey
-    }));
+    }), { abortSignal: signal });
     verifyRemoteMetadata(remote, { objectKey, size, contentType, sha256 });
 
     if (this.configuration.verifyPublic) await this.verifyPublicObject(objectKey, size);

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,13 +45,18 @@ const createFixture = async () => {
 };
 
 class FakeProvider {
-  constructor({ fail = false } = {}) {
+  constructor({ fail = false, failOnCall = 0, onUpload = null } = {}) {
     this.fail = fail;
+    this.failOnCall = failOnCall;
+    this.onUpload = onUpload;
+    this.calls = 0;
     this.uploads = [];
   }
 
   async uploadAndVerify(file) {
-    if (this.fail) throw new Error('simulated remote mismatch');
+    this.calls += 1;
+    if (this.fail || this.calls === this.failOnCall) throw new Error('simulated remote mismatch');
+    this.onUpload?.(file);
     this.uploads.push({
       objectKey: file.objectKey,
       size: file.size,
@@ -185,6 +192,93 @@ test('publication lock prevents concurrent publishers in one checkout', async ()
     await secondRelease();
   } finally {
     if (release) await release();
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+// exitedPid : the PID of a process that has already exited
+const exitedPid = async () => {
+  const child = spawn(process.execPath, ['-e', '']);
+  await once(child, 'exit');
+  return child.pid;
+};
+
+const writeLock = async (lockPath, owner) => {
+  await mkdir(path.dirname(lockPath), { recursive: true });
+  await writeFile(lockPath, `${JSON.stringify({ startedAt: '2026-11-03T00:00:00.000Z', ...owner })}\n`);
+};
+
+test('a lock left by a process that has exited is removed and taken over', async () => {
+  const fixture = await createFixture();
+  const { lockPath } = fixture.configuration;
+  try {
+    await writeLock(lockPath, { pid: await exitedPid(), hostname: os.hostname() });
+    const release = await acquirePublicationLock(lockPath);
+    assert.equal(JSON.parse(await readFile(lockPath, 'utf8')).pid, process.pid);
+    await release();
+
+    // Same PID as this process, but not held by it: an earlier run (for example PID 1 in a container)
+    await writeLock(lockPath, { pid: process.pid, hostname: os.hostname() });
+    await (await acquirePublicationLock(lockPath))();
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('a lock held by a live process or another host is respected', async () => {
+  const fixture = await createFixture();
+  const { lockPath } = fixture.configuration;
+  try {
+    await writeLock(lockPath, { pid: process.ppid, hostname: os.hostname() });
+    await assert.rejects(acquirePublicationLock(lockPath), new RegExp(`Another media publication is active \\(PID ${process.ppid}`));
+
+    await writeLock(lockPath, { pid: await exitedPid(), hostname: 'another-host' });
+    await assert.rejects(acquirePublicationLock(lockPath), /Another media publication is active/);
+
+    await writeFile(lockPath, 'not json');
+    await assert.rejects(acquirePublicationLock(lockPath), /Delete it only if no publication is running/);
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('a failure partway through records the uploads that already succeeded', async () => {
+  const fixture = await createFixture();
+  await writeFile(path.join(fixture.configuration.mediaPath, 'a.png'), PNG);
+  await writeFile(path.join(fixture.configuration.mediaPath, 'b.png'), PNG);
+  try {
+    const provider = new FakeProvider({ failOnCall: 2 });
+    await assert.rejects(publishMedia({ configuration: fixture.configuration, provider }), /simulated remote mismatch/);
+    const manifest = await readManifest(fixture.configuration.manifestPath, fixture.configuration.mediaLocation);
+    assert.deepEqual(Object.keys(manifest.files), [provider.uploads[0].objectKey]);
+
+    const retry = new FakeProvider();
+    const result = await publishMedia({ configuration: fixture.configuration, provider: retry });
+    assert.equal(retry.uploads.length, 1);
+    assert.equal(result.unchanged, 1);
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('an abort stops before the next file and keeps finished uploads', async () => {
+  const fixture = await createFixture();
+  await writeFile(path.join(fixture.configuration.mediaPath, 'a.png'), PNG);
+  await writeFile(path.join(fixture.configuration.mediaPath, 'b.png'), PNG);
+  const controller = new AbortController();
+  try {
+    const provider = new FakeProvider({ onUpload: (file) => {
+      assert.equal(file.signal, controller.signal);
+      controller.abort(new Error('Interrupted by SIGINT'));
+    } });
+    await assert.rejects(
+      publishMedia({ configuration: fixture.configuration, provider, signal: controller.signal }),
+      /Interrupted by SIGINT/
+    );
+    assert.equal(provider.uploads.length, 1);
+    const manifest = await readManifest(fixture.configuration.manifestPath, fixture.configuration.mediaLocation);
+    assert.equal(Object.keys(manifest.files).length, 1);
+  } finally {
     await rm(fixture.appRootPath, { recursive: true, force: true });
   }
 });

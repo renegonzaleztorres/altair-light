@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
+import os from 'node:os';
 import { fileTypeFromFile } from 'file-type';
 import { fs, path } from './dependencies.js';
 import { resolveMediaConfiguration } from './media-config.js';
@@ -220,16 +221,26 @@ const sortManifestFiles = (files) => Object.fromEntries(
   Object.entries(files).sort(([left], [right]) => left.localeCompare(right))
 );
 
-const publishMedia = async ({ configuration, provider = null, dryRun = false, now = () => new Date() } = {}) => {
+// publishMedia : upload new and changed media, then record them in the manifest.
+// signal (optional AbortSignal) stops between files and aborts the upload in
+// flight. On failure or abort, uploads that already succeeded are still
+// written to the manifest, so the next run does not upload them again.
+const publishMedia = async ({ configuration, provider = null, dryRun = false, now = () => new Date(), signal } = {}) => {
   await assertMediaContainment(configuration);
   const manifest = await readManifest(configuration.manifestPath, configuration.mediaLocation);
   const nextFiles = { ...manifest.files };
   const result = { ok: true, new: 0, updated: 0, unchanged: 0, remoteOnly: 0, failed: 0 };
   const localKeys = new Set();
   let changed = false;
+  const writeManifest = () => writeManifestAtomic(configuration.manifestPath, {
+    schemaVersion: MANIFEST_SCHEMA_VERSION,
+    mediaLocation: configuration.mediaLocation,
+    files: sortManifestFiles(nextFiles)
+  });
 
   try {
     for await (const discovered of walkMedia(configuration.mediaPath)) {
+      signal?.throwIfAborted();
       const file = await inspectMediaFile(discovered, configuration.mediaLocation);
       localKeys.add(file.objectKey);
       const previous = manifest.files[file.objectKey];
@@ -247,7 +258,7 @@ const publishMedia = async ({ configuration, provider = null, dryRun = false, no
       if (!provider || typeof provider.uploadAndVerify !== 'function') {
         throw new Error('A media provider is required for publication');
       }
-      await provider.uploadAndVerify({ ...file, cacheControl: configuration.cacheControl });
+      await provider.uploadAndVerify({ ...file, cacheControl: configuration.cacheControl, signal });
       const afterUpload = await fs.stat(file.filePath);
       if (afterUpload.size !== file.size || afterUpload.mtimeMs !== file.modifiedTimeMs || afterUpload.ino !== file.ino) {
         throw new Error(`Media file changed while it was being published: ${file.objectKey}`);
@@ -269,36 +280,74 @@ const publishMedia = async ({ configuration, provider = null, dryRun = false, no
     result.ok = false;
     result.failed += 1;
     error.result = result;
+    if (!dryRun && changed) {
+      try {
+        await writeManifest();
+      } catch (checkpointError) {
+        error.message = `${error.message}; the manifest checkpoint also failed: ${checkpointError.message}`;
+      }
+    }
     throw error;
   }
 
   result.remoteOnly = Object.keys(manifest.files).filter((key) => !localKeys.has(key)).length;
-  if (!dryRun && changed) {
-    await writeManifestAtomic(configuration.manifestPath, {
-      schemaVersion: MANIFEST_SCHEMA_VERSION,
-      mediaLocation: configuration.mediaLocation,
-      files: sortManifestFiles(nextFiles)
-    });
-  }
+  if (!dryRun && changed) await writeManifest();
   return result;
+};
+
+// Lock paths this process holds, so a lock carrying this process's PID can be
+// told apart from a stale lock left by an earlier process that had the same PID
+// (common for PID 1 in containers).
+const heldLocks = new Set();
+
+// isStaleLock : true when the lock's process is known to be gone. A lock from
+// another host, or one that cannot be read, is never treated as stale.
+const isStaleLock = async (lockPath) => {
+  let owner;
+  try {
+    owner = JSON.parse(await fs.readFile(lockPath, 'utf8'));
+  } catch {
+    return { stale: false, owner: null };
+  }
+  if (!Number.isInteger(owner?.pid) || owner.pid <= 0 || (owner.hostname && owner.hostname !== os.hostname())) {
+    return { stale: false, owner };
+  }
+  if (owner.pid === process.pid) return { stale: !heldLocks.has(lockPath), owner };
+  try {
+    process.kill(owner.pid, 0);
+    return { stale: false, owner };
+  } catch (error) {
+    return { stale: error.code === 'ESRCH', owner };
+  }
 };
 
 const acquirePublicationLock = async (lockPath) => {
   await fs.mkdir(path.dirname(lockPath), { recursive: true });
-  let handle;
-  try {
-    handle = await fs.open(lockPath, 'wx', 0o600);
-    await handle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`);
-  } catch (error) {
-    if (handle) await handle.close();
-    if (handle) await fs.rm(lockPath, { force: true });
-    if (error.code === 'EEXIST') throw new Error(`Another media publication is active; lock exists at ${lockPath}`);
-    throw error;
+  for (let attempt = 0; ; attempt += 1) {
+    let handle;
+    try {
+      handle = await fs.open(lockPath, 'wx', 0o600);
+      await handle.writeFile(`${JSON.stringify({ pid: process.pid, hostname: os.hostname(), startedAt: new Date().toISOString() })}\n`);
+    } catch (error) {
+      if (handle) await handle.close();
+      if (handle) await fs.rm(lockPath, { force: true });
+      if (error.code !== 'EEXIST') throw error;
+      const { stale, owner } = await isStaleLock(lockPath);
+      if (stale && attempt === 0) {
+        // The process that left this lock is gone (for example, an interrupted run)
+        await fs.rm(lockPath, { force: true });
+        continue;
+      }
+      const ownerText = owner?.pid ? ` (PID ${owner.pid}${owner.startedAt ? `, started ${owner.startedAt}` : ''})` : '';
+      throw new Error(`Another media publication is active${ownerText}; lock exists at ${lockPath}. Delete it only if no publication is running.`);
+    }
+    heldLocks.add(lockPath);
+    return async () => {
+      heldLocks.delete(lockPath);
+      await handle.close();
+      await fs.rm(lockPath, { force: true });
+    };
   }
-  return async () => {
-    await handle.close();
-    await fs.rm(lockPath, { force: true });
-  };
 };
 
 export {

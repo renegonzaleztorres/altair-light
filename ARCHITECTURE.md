@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Bundled Altair module | 4.2.0 |
+| Bundled Altair module | 4.3.0 |
 | Document owner | This application repository |
-| Last reviewed | 2026-11-01 |
+| Last reviewed | 2026-11-03 |
 | Framework architecture | [`altair/ARCHITECTURE.md`](altair/ARCHITECTURE.md) |
 
 ## Purpose and Scope
@@ -352,8 +352,13 @@ The test commands intentionally separate framework and application ownership:
 | `pnpm test` | Complete pre-deployment gate |
 
 The Altair HTTP fixtures do not execute this project’s root `index.js` or its
-custom `WebApp`. Application forks should place custom route, integration,
-content, accessibility, and deployment tests under `tests/`.
+custom `WebApp`. `tests/` is tracked in Git and holds the project's own tests;
+`tests/site.test.js` is a smoke test that renders the real active space through
+the real `WebApp` (no port, no `.env`) and fails on any unresolved template tag.
+Application forks should add custom route, integration, content,
+accessibility, and deployment tests there. How to write them, the test
+helpers, and when to run them before a deploy are in
+[README.md](README.md#project-tests-tests).
 
 ## Security Boundaries
 
@@ -367,7 +372,11 @@ content, accessibility, and deployment tests under `tests/`.
   private base `pages/_404.html` and `pages/_500.html` presentations without
   changing those statuses or enabling route caching for them.
 - The current raw template substitution model requires trusted content. Default
-  escaping is planned but not yet implemented.
+  escaping is planned but not yet implemented. Template includes and data
+  files are confined to the active space, and hidden (`.`-prefixed) files never
+  render, so a bad include cannot publish `.env`.
+- WebSocket session IDs are issued by the server; a client resumes a session
+  only with its one-time resume token.
 - Reverse-proxy trust, security headers, narrowed CORS, and structured request
   logging are roadmap items, not current project guarantees.
 
