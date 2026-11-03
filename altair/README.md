@@ -371,6 +371,26 @@ main().catch((error) => {
 });
 ```
 
+## Extensions
+
+Reusable features (analytics, sitemaps, SEO tags, forms) plug in through the
+extension API instead of subclassing. An application lists them and turns each
+on with a config block:
+
+```js
+class WebApp extends WebServer {
+  static extensions = [googleAnalytics];
+}
+```
+
+```json
+{ "extensions": { "googleAnalytics": { "measurementId": "G-XXXXXXXXXX" } } }
+```
+
+No config block, nothing happens. The contract is "Extension API" in
+[ARCHITECTURE.md](ARCHITECTURE.md); the shared library is
+[`../extensions/`](../extensions/README.md).
+
 ## Architecture
 
 - [Altair module architecture](ARCHITECTURE.md) — framework internals,

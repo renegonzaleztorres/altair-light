@@ -187,6 +187,11 @@ class WebServer extends HTTPServer {
     const timeSensitive = /@@VAR_(?:TIMESTAMP|TS)(?![\w-])/i.test(data);
     data = this.tarazed.replaceVarTags(data, this.varDefinitions({ currentPath, ...variables }));
     if (this.settings.minify) data = data.replace(/<!--[\s\S]*?-->/g, '');
+    if (this.extensionRunner) {
+      data = await this.extensionRunner.transform('html', data, {
+        path: this.normalizeRouteCacheKey(routePath), routePath, kind: allowPrivate ? 'error' : 'page'
+      });
+    }
     data = await this.applyGlobalReplacements({ content: data, type: 'html', routePath });
     return {
       body: data,
@@ -329,6 +334,7 @@ class WebServer extends HTTPServer {
           throw new Error(`CSS minification error(s) > ${minified.errors.join(', ')}`);
         data = minified.styles;
       } // if
+      if (this.extensionRunner) data = await this.extensionRunner.transform('css', data, { path: p });
       data = await this.applyGlobalReplacements({ content: data, type: 'css', routePath: p });
       return context.body(data, 200, { 'Content-Type': 'text/css; charset=UTF-8' });
     }
@@ -367,6 +373,7 @@ class WebServer extends HTTPServer {
           throw new Error(`JS minification error(s) > ${minified.error.message}`);
         data = minified.code;
       } // if
+      if (this.extensionRunner) data = await this.extensionRunner.transform('js', data, { path: p });
       data = await this.applyGlobalReplacements({ content: data, type: 'js', routePath: p });
       return context.body(data, 200, { 'Content-Type': 'application/javascript; charset=UTF-8' });
     }
@@ -537,6 +544,28 @@ class WebServer extends HTTPServer {
 
   } // resolveActiveSpaceFile
 
+  // listPublicPages : public page routes in the active space ("/" for home.html), sorted;
+  // skips private "_" files and folders and names pageNameValidation rejects
+  async listPublicPages() {
+
+    const pagesRoot = path.join(this.settings.appRootPath, this.settings.activeSpace, this.settings.pagesLocation);
+    const routes = [];
+    const visit = async (directory, prefix) => {
+      for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+        if (entry.name.startsWith('_')) continue;
+        const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) await visit(path.join(directory, entry.name), relative);
+        else if (entry.isFile() && entry.name.endsWith('.html')) {
+          const page = relative.slice(0, -'.html'.length);
+          if (this.pageNameValidation(page)) routes.push(page === 'home' ? '/' : `/${page}`);
+        }
+      }
+    };
+    await visit(pagesRoot, '');
+    return routes.sort();
+
+  } // listPublicPages
+
   // pageNameValidation : validate the page|script name
   pageNameValidation(p) {
 
@@ -562,6 +591,7 @@ class WebServer extends HTTPServer {
       timestamp: this.nowToJSONDateUTC(),
       ts: this.nowToJSONDateUTC(),
       currentpath: currentPath,
+      ...this.extensionRunner?.vars({ currentPath }),
       ...this.additionalVarDefinitions(),
       ...flattenedDataCache,
       ...otherProps

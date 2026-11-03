@@ -291,8 +291,9 @@ for provider settings, security constraints, and operational details.
 
 ## Testing
 
-- `pnpm test` runs both the Altair framework tests and application tests.
+- `pnpm test` runs the Altair framework, extension and application tests.
 - `pnpm test:altair` runs only tests belonging to the Altair framework.
+- `pnpm test:extensions` runs the tests under `extensions/` and `web-app/extensions/`.
 - `pnpm test:app` runs only application tests under `tests/`.
 
 The Altair HTTP tests use a minimal test-only server and do not execute the
@@ -303,6 +304,7 @@ application's root `index.js` or custom `WebApp` startup behavior.
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — This project’s application architecture, custom integration, content model, and deployment decisions
 - **[altair/ARCHITECTURE.md](./altair/ARCHITECTURE.md)** — Versioned Altair module internals and framework extension contract
 - **[altair/README.md](./altair/README.md)** — Altair module documentation
+- **[extensions/README.md](./extensions/README.md)** — Opt-in extensions (such as Google Analytics) and how to write one
 
 ## License
 

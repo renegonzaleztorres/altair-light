@@ -6,6 +6,10 @@ import WebServer from '../altair/altair.js';
 
 class WebApp extends WebServer{
 
+  // extensions : opt-in features, active only when their extensions.<key> config block exists
+  // (see extensions/README.md), e.g. static extensions = [googleAnalytics];
+  static extensions = [];
+
   constructor() {
 
     super();

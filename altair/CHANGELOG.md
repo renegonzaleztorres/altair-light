@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-11-02
+
+### Added
+- Added the extension API (version 1) in `altair/extensions.js`. Applications list extensions with `static extensions = [...]`; an extension is active only when its `settings.extensions.<configKey>` block is present. `defineExtension({ name, apiVersion, configKey, setup })` validates and freezes a definition, and `setup(api)` (which may be async) returns hooks: `transformHTML`, `transformCSS`, `transformJS`, `vars`, `contentChanged` and `shutdown`
+- The `api` object gives each extension its own config, the frozen application settings, read-only `site.listPages()` and `site.data()`, `env()` for secrets (kept out of `settings`), `log`/`warn`, `addRoute` with route-level middleware, `addMiddleware` and `invalidateRouteCache`
+- Startup fails on unknown hooks, duplicate extension names, colliding routes and routes Altair owns (`/`, `*`, `/*`); a setup failure shuts down the extensions already set up
+- Added JSDoc types for editor checking with `// @ts-check`, `altair/version.js` (`ALTAIR_VERSION`), `WebServer.listPublicPages()`, `HTTPServer.prepare()`, the `createExtensionTestServer` test helper and the `altair/extensions.test.js` conformance suite
+
+### Changed
+- `start()` now sets up extensions before the application's `onSettingsReady`, and delegates the steps before watching and listening to `prepare()`; existing applications without extensions behave as before
+
 ## [4.1.3] - 2026-11-02
 
 ### Fixed

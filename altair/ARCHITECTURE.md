@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 4.1.3 |
+| Altair version | 4.2.0 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -26,6 +26,7 @@ Minimalist Node.js web server framework for AI-assisted development:
 - **Media publishing** - Explicit verified S3/R2 publication with stable `/media/...` URLs
 - **On-demand processing** - No build step; templates processed on cache misses
 - **Space-based** - Multiple projects in isolated `spaces/` directories
+- **Extensions** - Opt-in reusable pieces (analytics, sitemaps, forms) through a small extension API
 - **Small core** - Built-in Node.js primitives and no added cache dependency
 
 **Philosophy:** Fork, configure, prompt AI to generate, build using conventions.
@@ -150,6 +151,8 @@ Lib → HTTPServer → WebServer → WebApp
 - `this.app` - Hono instance
 - `this.dataCache` - In-memory cache from DATA.json (access via `getDataCache()`)
 - `start()` - Loads settings and DATA, initializes services, awaits listener readiness, and rolls back partial startup on failure
+- `prepare()` - Everything `start()` does before watching and listening: extension setup, settings, DATA, middleware and routes
+- `static extensions` / `setupExtensions()` / `this.extensionRunner` - Extension API (see "Extension API")
 - `loadDataFile()` - Atomically loads DATA.json and returns a structured applied/changed result
 - `reloadActiveSpace()` - Reloads DATA, refreshes watcher state, and invalidates routes
 - `getDataCache()` - Returns dataCache object
@@ -168,9 +171,10 @@ Lib → HTTPServer → WebServer → WebApp
 - `pageNameValidation(p)` - Rejects traversal, malformed paths, and underscore-prefixed segments
 - `handleMissingPage()` - Application policy hook for missing HTML pages only
 - `renderErrorPage()` - Optional private `_404.html`/`_500.html` rendering outside the route cache
-- `varDefinitions()` - Returns {year, timestamp, ts, currentpath} + additionalVarDefinitions() + flattened DATA.json vars
+- `varDefinitions()` - Returns {year, timestamp, ts, currentpath} + extension vars + additionalVarDefinitions() + flattened DATA.json vars
 - `additionalVarDefinitions()` - Override for custom variables
 - `additionalRoutes()` - Override for custom routes
+- `listPublicPages()` - Public page routes in the active space; backs the extension `site.listPages()`
 
 **WebApp** (`web-app/web-app.js`): Application customization
 - Extends WebServer
@@ -202,15 +206,15 @@ Lib → HTTPServer → WebServer → WebApp
 
 **Startup:** `index.js` → async `main()` → `new WebApp()` → `await wa.start()` → running `WebApp`. Rejection returns to the explicit entry-point error boundary.
 
-**HTML Request:** Route → `renderHTML()` → Validate → Read file → `replaceElemTags()` (recursive) → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify comments (optional) → `applyGlobalReplacements()` → Send
+**HTML Request:** Route → `renderHTML()` → Validate → Read file → `replaceElemTags()` (recursive) → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify comments (optional) → extension `transformHTML` → `applyGlobalReplacements()` → Send
 
 With Route Cache enabled, the HTML flow becomes: eligibility check → cache
 lookup → ETag comparison → cached `200`/`304`, or one coalesced
 `renderHTMLBody()` call on a miss → generation-safe storage → response.
 
-**CSS Request:** Route → `renderCSS()` → Validate → Read → `replaceElemTags()` → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify (CleanCSS, optional) → `applyGlobalReplacements()` → Send
+**CSS Request:** Route → `renderCSS()` → Validate → Read → `replaceElemTags()` → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify (CleanCSS, optional) → extension `transformCSS` → `applyGlobalReplacements()` → Send
 
-**JS Request:** Route → `renderJS()` → Validate → Read → `replaceElemTags()` → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify (Terser, optional) → `applyGlobalReplacements()` → Send
+**JS Request:** Route → `renderJS()` → Validate → Read → `replaceElemTags()` → `replaceRepeatTags()` → `replaceDataTags()` → `replaceVarTags()` → Minify (Terser, optional) → extension `transformJS` → `applyGlobalReplacements()` → Send
 
 **Media Request:** static `PUBLIC_LOCATION` lookup → local media response when
 present → optional safe `307` to `MEDIA_CDN_BASE_URL` after a miss → normal
@@ -625,7 +629,8 @@ as a Turnstile site key, should be kept separate from server-only secrets.
 ## Extension Points
 
 Applications extend `WebServer` (see `web-app/web-app.js`) and override its
-hooks. The framework declares every hook as a prototype method, so a subclass
+hooks. Reusable pieces meant for more than one application are written as
+extensions instead (see "Extension API" below). The framework declares every hook as a prototype method, so a subclass
 may override it with either syntax:
 
 - **Method syntax** (`additionalRoutes() { ... }`) is the default style for new
@@ -696,6 +701,186 @@ async start() {
   return super.start();
 }
 ```
+
+---
+
+## Extension API
+
+Extensions are reusable pieces (analytics, sitemaps, SEO tags, forms) that an
+application turns on without subclassing. Subclass hooks (above) remain the
+way an application customizes itself; extensions never subclass `WebServer`.
+The runner lives in `altair/extensions.js`. Extension API version: **1**.
+
+### Writing an extension
+
+```js
+// @ts-check
+import { defineExtension } from '../../altair/extensions.js';
+
+export const example = defineExtension({
+  name: 'example',          // lowercase kebab-case, unique
+  apiVersion: 1,            // extension API version it was written for
+  configKey: 'example',     // reads settings.extensions.example
+  async setup(api) {        // runs once at startup, only when the config block exists; may be async
+    // validate api.config, read files, register routes or middleware, prepare state
+    return {                // the hooks this extension implements
+      transformHTML: ({ content }) => content
+    };
+  }
+});
+```
+
+`// @ts-check` gives editor completion and errors from the JSDoc types in
+`extensions.js` with no TypeScript install. The runner checks the same rules
+at startup.
+
+### Turning one on
+
+An extension is **installed** when the application lists it and **active**
+only when its config block is present:
+
+```js
+// web-app/web-app.js
+class WebApp extends WebServer {
+  static extensions = [sitemap, googleAnalytics];
+}
+```
+
+```json
+// config/production.json
+{ "extensions": { "googleAnalytics": { "measurementId": "G-XXXXXXXXXX" } } }
+```
+
+- No config block, nothing happens. An extension with no settings is turned on
+  with an empty block: `"sitemap": {}`.
+- A config block must be an object, and `extensions` itself must be an object.
+- Startup logs (with `DEBUG=true`) one line per extension: `active`, or
+  `inactive (no extensions.<configKey> config)`. The same list is available
+  as `server.extensionRunner.status`.
+- Shared extensions live in `extensions/`; extensions for one site live in
+  `web-app/extensions/`.
+
+### Hooks returned from `setup`
+
+| Hook | Runs | Input | Returns | Combined |
+| --- | --- | --- | --- | --- |
+| `transformHTML` | Every rendered page and custom error page, before the app's `applyGlobalReplacements` | `{ content, path, routePath, kind }` | string (or promise) | Waterfall in list order |
+| `transformCSS` | Every rendered CSS file, after minification, before `applyGlobalReplacements` | `{ content, path }` | string (or promise) | Waterfall |
+| `transformJS` | Every rendered JS file, same position | `{ content, path }` | string (or promise) | Waterfall |
+| `vars` | Every render | `{ currentPath }` | plain object (synchronous) | Merged; keys lowercased |
+| `contentChanged` | After a DATA change, a kinetic-content batch, or `reloadActiveSpace()` has cleared the route cache | `{ reason }` | nothing (may be async) | Sequential; errors logged |
+| `shutdown` | Graceful shutdown, before watchers and the listener close | none | nothing (may be async) | Reverse order; errors logged |
+
+- In `transformHTML`, `path` is the normalized route (`/`, `/about`,
+  `/blog/post`; `/_404` and `/_500` for error pages) and `kind` is `'page'`
+  or `'error'`. `routePath` is Altair's internal page name (`home`,
+  `/blog/post`, `_404`); match on `path`.
+- Template variables, lowest priority first: core (`year`, `timestamp`,
+  `ts`, `currentpath`), extensions, the app's `additionalVarDefinitions()`,
+  DATA.json, per-call values. When two extensions define the same variable the
+  later one wins, with one warning per name.
+- Any other key returned from `setup` stops startup, so a misspelled hook
+  can't be silently ignored.
+
+### The `api` object passed to `setup`
+
+| Member | Purpose |
+| --- | --- |
+| `name` | This extension's name |
+| `config` | Its frozen `settings.extensions[configKey]` block |
+| `settings` | The application's frozen settings: the same object as `this.settings` |
+| `site.listPages()` | Promise of public page routes (`/`, `/about`, `/blog/first-post`), sorted; skips `_` files and folders |
+| `site.data()` | Current DATA.json contents as a deep-frozen copy (one copy per DATA load); reflects reloads |
+| `env(name, { required = true })` | **During setup only.** Reads one uppercase environment variable. A missing required value stops startup naming the variable; an optional one returns `undefined`. |
+| `log(message)` | Debug line prefixed with the extension name; printed only when `DEBUG=true` |
+| `warn(message)` | Always-printed warning, `[Extension] <name>: …` |
+| `addRoute(method, path, ...handlers)` | **During setup only.** `GET`, `POST`, `PUT`, `PATCH` or `DELETE`; mounted before the app's and Altair's routes. Earlier handlers act as route middleware (Hono's `csrf()`, `bodyLimit()`). `/`, `*` and `/*` belong to Altair. Two extensions registering the same method and path stop startup. |
+| `addMiddleware(handler)` | **During setup only.** Hono middleware for every request, mounted after CORS and before static files |
+| `invalidateRouteCache(reason)` | Clears rendered pages, for example after the extension's own data changes |
+
+Extensions have no access to the server instance (`this`) or the raw Hono
+app. **Secrets come from `api.env()`, never from config**: application
+secrets must stay out of the shared `settings` object. `status` records the
+names of the variables each extension read, never their values.
+
+### Lifecycle
+
+```text
+start() → prepare()
+  setupExtensions()        awaited in list order; routes and middleware collected
+  initialize()             the app's onSettingsReady() runs after every extension's setup
+  DATA loaded
+  cors → extension middleware → static files → media fallback
+  extension routes → routes(): "/" → CSS/JS → additionalRoutes() → page catch-all
+→ watchers → listening
+(any failure: shutdown(), including the extensions already set up, then start() rejects)
+
+page request: middleware → render → transformHTML (list order) → applyGlobalReplacements → route cache
+content change: DATA reload → route cache cleared → contentChanged
+shutdown(): extension shutdown (reverse order) → watchers → listener
+```
+
+`prepare()` is everything `start()` does before watching and listening.
+Tests use it to serve requests in-process.
+
+### The cache contract
+
+Rendered pages are stored in the route cache **after** transforms and
+variables run, then served to every visitor. So `transformHTML`,
+`transformCSS`, `transformJS` and `vars` may depend **only on the path, the
+content and configuration**, never on the request (cookies, headers, query,
+user). Per-request behavior belongs in `addMiddleware`, which runs on every
+request, including cached ones. Extensions that derive data from content
+rebuild it in `contentChanged`.
+
+### Errors
+
+| Where | What happens |
+| --- | --- |
+| `defineExtension` | Throws at module load: bad name, wrong `apiVersion`, missing `configKey` or `setup` |
+| Listing an object not made by `defineExtension`, or the same name twice | Startup fails |
+| `setup` throws or rejects | `start()` rejects with `Extension <name> failed to set up: …`; extensions already set up get `shutdown` |
+| Unknown hook returned | Startup fails |
+| `addRoute`, `addMiddleware` or `env` after setup | Throws `… is only available during setup` |
+| Duplicate route, or a route Altair owns | Startup fails |
+| `transformHTML/CSS/JS` throws or returns a non-string | The request gets Altair's safe `500` (error reference, logged detail) |
+| `contentChanged` or `shutdown` throws | Logged; the remaining extensions still run |
+
+### Testing an extension
+
+`altair/test/helpers.js` exports `createExtensionTestServer`, which builds a
+temporary active space and prepares the server exactly as `start()` does,
+without opening a port:
+
+```js
+import { createExtensionTestServer } from '../../altair/test/helpers.js';
+
+const { request, server, cleanup } = await createExtensionTestServer({
+  extensions: [example],
+  config: { example: {} },                     // settings.extensions
+  pages: { 'home.html': '<html><head></head><body></body></html>' },
+  data: {},                                     // DATA.json
+  env: {},                                      // what api.env() reads
+  settings: {}                                  // other settings overrides
+});
+try {
+  const response = await request('/');
+} finally {
+  await cleanup();
+}
+```
+
+The contract itself is pinned by `altair/extensions.test.js`.
+
+### Versioning
+
+Adding a hook or an `api` member keeps extension API version 1. Changing or
+removing one increments it; a later Altair major release can accept both
+versions during a transition. Not in version 1, and added only when a real
+extension needs it: ordering constraints between extensions, raw Hono access,
+per-request render hooks, route-cache eligibility and missing-page hooks,
+WebSocket and post-listen hooks, dependencies between extensions, and a setup
+timeout (an extension that fetches at startup should bound its own I/O).
 
 ---
 
@@ -979,6 +1164,9 @@ Override `additionalRoutes()` in `web-app/web-app.js`; use Hono methods such as 
 | `index.js` | Entry point |
 | `web-app/web-app.js` | Custom WebApp class |
 | `altair/altair.js` | Core WebServer |
+| `altair/extensions.js` | Extension API runner and types |
+| `extensions/` | Shared extension library |
+| `web-app/extensions/` | Site-specific extensions |
 | `altair/settings.js` | Validated immutable settings loader |
 | `altair/tarazed.js` | Template engine |
 | `.env` | Environment variables |
@@ -1026,6 +1214,7 @@ the validated framework runtime fields, including `nodeEnv`, `host`, `port`,
 - File-backed JSON selectors via `@@DATA_` tags
 - Variables via `@@VAR_` tags (includes DATA.json auto-injection)
 - Parameters via `@@PARAM_` tags
+- Reusable features through the extension API (`static extensions` plus an `extensions.<key>` config block)
 - DATA.json: environment-based config with hot-reload, nested objects flattened
 - Processing order: Elements/Parameters → Repeat tags → Data tags → Variables
 - Private files use `_` prefix (blocked from HTTP)

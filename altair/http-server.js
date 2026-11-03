@@ -10,12 +10,16 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { path, fs, fsSync } from './dependencies.js'
+import { ExtensionRunner } from './extensions.js';
 import Lib from './lib.js';
 import { createMediaRedirectUrl, mediaRequestTarget, resolveMediaConfiguration } from './media-config.js';
 import { loadSettings } from './settings.js';
 import SpaceWatcher from './space-watcher.js';
 
 class HTTPServer extends Lib {
+
+  // extensions : applications list theirs with `static extensions = [...]` (see extensions.js)
+  static extensions = [];
 
   constructor(options = {}){
 
@@ -34,6 +38,7 @@ class HTTPServer extends Lib {
         resourceType: this.requestExpectsHTML(context) ? 'html' : 'resource'
       }));
     this.server = null;
+    this.extensionRunner = null;
     this.wsServer = null;
     this.activeSpacePath = null;
     this.mediaConfiguration = null;
@@ -96,6 +101,32 @@ class HTTPServer extends Lib {
     return;
 
   } // onSettingsReady
+
+  // setupExtensions : create the runner once and await every configured extension's setup
+  // (env defaults to process.env; tests may pass their own)
+  async setupExtensions({ env } = {}) {
+
+    if (!this.settings) this.settings = loadSettings();
+    this.extensionRunner ??= new ExtensionRunner({
+      extensions: this.constructor.extensions,
+      settings: this.settings,
+      readout: this.readout,
+      invalidateRouteCache: (reason) => this.invalidateRouteCache(reason),
+      listPages: () => this.listPublicPages(),
+      getData: () => this.getDataCache(),
+      env
+    });
+    await this.extensionRunner.setup();
+    return this.extensionRunner;
+
+  } // setupExtensions
+
+  // listPublicPages : public page routes, implemented by WebServer
+  async listPublicPages() {
+
+    return [];
+
+  } // listPublicPages
 
   initialize() {
 
@@ -178,7 +209,10 @@ class HTTPServer extends Lib {
     this.dataReloadTimer = setTimeout(async () => {
       this.dataReloadTimer = null;
       const result = await this.attemptDataReload();
-      if (result.applied && result.changed) this.invalidateRouteCache('data-change');
+      if (result.applied && result.changed) {
+        this.invalidateRouteCache('data-change');
+        await this.extensionRunner?.contentChanged({ reason: 'data-change' });
+      }
     }, this.dataReloadDebounce);
 
   } // scheduleDataReload
@@ -311,7 +345,9 @@ class HTTPServer extends Lib {
           this.routeCacheAdmissionSuspended = true;
           const dataResult = await this.attemptDataReload();
           if (!dataResult.applied) return false;
-          this.invalidateRouteCache(rootChanged ? 'active-space-root-change' : `kinetic-${reason}`);
+          const changeReason = rootChanged ? 'active-space-root-change' : `kinetic-${reason}`;
+          this.invalidateRouteCache(changeReason);
+          await this.extensionRunner?.contentChanged({ reason: changeReason });
           this.routeCacheAdmissionSuspended = false;
           return true;
         },
@@ -347,6 +383,7 @@ class HTTPServer extends Lib {
       }
 
       this.invalidateRouteCache(`active-space-reload-${reason}`);
+      await this.extensionRunner?.contentChanged({ reason: `active-space-reload-${reason}` });
       this.routeCacheAdmissionSuspended = false;
       return true;
     })();
@@ -397,25 +434,37 @@ class HTTPServer extends Lib {
 
   } // mediaFallback
 
+  // prepare : everything start() does before watching and listening; tests use it to serve requests without a port
+  async prepare() {
+
+    // Extensions are set up (in list order) before the application's onSettingsReady
+    await this.setupExtensions();
+    this.initialize();
+    this.initializeMediaConfiguration();
+
+    // Load data before starting server
+    const startupDataResult = await this.loadDataFile();
+    if (!startupDataResult.applied && this.settings.enableRouteCache) {
+      this.routeCacheAdmissionSuspended = true;
+    }
+
+    this.app.use('*', cors());
+    this.extensionRunner.mountMiddleware(this.app);
+    this.app.use('*', serveStatic({ root: this.publicPath }));
+    this.app.use('*', (context, next) => this.mediaFallback(context) || next());
+
+    // Routes: extension routes take precedence over the application and core routes
+    this.extensionRunner.mountRoutes(this.app);
+    this.routes();
+    return this;
+
+  } // prepare
+
   // start : start app
   async start() {
 
     try {
-      this.initialize();
-      this.initializeMediaConfiguration();
-
-      // Load data before starting server
-      const startupDataResult = await this.loadDataFile();
-      if (!startupDataResult.applied && this.settings.enableRouteCache) {
-        this.routeCacheAdmissionSuspended = true;
-      }
-
-      this.app.use('*', cors());
-      this.app.use('*', serveStatic({ root: this.publicPath }));
-      this.app.use('*', (context, next) => this.mediaFallback(context) || next());
-
-      // Routes
-      this.routes();
+      await this.prepare();
 
       // Start watching data file for changes (if enabled)
       await this.startChangeObservation();
@@ -476,7 +525,9 @@ class HTTPServer extends Lib {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.shuttingDown = true;
     this.routeCacheAdmissionSuspended = true;
-    this.shutdownPromise = new Promise((resolve) => {
+    // Extensions shut down first (reverse order), while watchers and the listener are still open
+    const extensionsClosed = this.extensionRunner?.shutdown() ?? Promise.resolve();
+    this.shutdownPromise = extensionsClosed.then(() => new Promise((resolve) => {
       this.readout('Shutting down...', 'Shutdown');
       this.stopWatchingDataFile();
       if (this.spaceWatcher) this.spaceWatcher.close();
@@ -506,7 +557,7 @@ class HTTPServer extends Lib {
           finish();
         }
       } else finish();
-    });
+    }));
     return this.shutdownPromise;
 
   } // shutdown

@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Bundled Altair module | 4.1.3 |
+| Bundled Altair module | 4.2.0 |
 | Document owner | This application repository |
 | Last reviewed | 2026-11-01 |
 | Framework architecture | [`altair/ARCHITECTURE.md`](altair/ARCHITECTURE.md) |
@@ -73,6 +73,8 @@ media publisher CLI -> S3-compatible object storage -> CDN/edge delivery
 altair-light/
 ├── index.js                    Application entry point
 ├── web-app/                    Project-owned Altair integration
+│   └── extensions/             Site-specific extensions (created when needed)
+├── extensions/                 Shared extension library (google-analytics, _template)
 ├── spaces/kinetic/             Active pages, components, data and assets
 ├── config/                     Versioned application settings
 ├── tests/                      Project-specific tests
@@ -88,6 +90,10 @@ Ownership rule:
   architecture.
 - A project choice, override, integration, content convention, or deployment
   decision belongs in this document.
+- A reusable feature meant for more than one site is an extension in
+  `extensions/`, documented in its own README; a feature for this site only is
+  an extension in `web-app/extensions/`. Which extensions this project lists
+  and configures belongs in this document.
 - Draft assessments, experiments, and implementation plans may be developed in
   `WORKBENCH/`; its working contents are local and non-authoritative.
 - Documentation should link to its canonical owner rather than copy it.
@@ -114,6 +120,23 @@ startup.
 ## Current Application Integration
 
 The project-specific class is [`web-app/web-app.js`](web-app/web-app.js).
+
+### Extensions
+
+`WebApp` declares `static extensions = []`: this project lists no extensions,
+so none are active. The extension API is documented under "Extension API" in
+[`altair/ARCHITECTURE.md`](altair/ARCHITECTURE.md), and the shared library
+with its conventions in [`extensions/README.md`](extensions/README.md).
+
+When the project turns one on, record it here:
+
+| Extension | Source | Config block | Environments | `.env` |
+| --- | --- | --- | --- | --- |
+| _none_ | | | | |
+
+An extension runs only when it is listed **and** its `extensions.<key>` block
+is present in the selected config file, so the environments column follows
+from where that block lives.
 
 ### Custom Routes
 
@@ -324,6 +347,7 @@ The test commands intentionally separate framework and application ownership:
 | Command | Ownership |
 | --- | --- |
 | `pnpm test:altair` | Reusable tests under `altair/` |
+| `pnpm test:extensions` | Extension tests under `extensions/` and `web-app/extensions/` |
 | `pnpm test:app` | Project-specific tests under `tests/` |
 | `pnpm test` | Complete pre-deployment gate |
 
