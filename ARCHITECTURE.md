@@ -354,7 +354,9 @@ The test commands intentionally separate framework and application ownership:
 The Altair HTTP fixtures do not execute this project’s root `index.js` or its
 custom `WebApp`. `tests/` is tracked in Git and holds the project's own tests;
 `tests/site.test.js` is a smoke test that renders the real active space through
-the real `WebApp` (no port, no `.env`) and fails on any unresolved template tag.
+the real `WebApp` (no port, no `.env`). It renders every public page and
+requests every local stylesheet and script those pages reference, and fails on
+any error status or unresolved template tag, without naming project files.
 Application forks should add custom route, integration, content,
 accessibility, and deployment tests there. How to write them, the test
 helpers, and when to run them before a deploy are in

@@ -313,12 +313,25 @@ The folder is tracked in Git.
   opened and tests run in milliseconds.
 
 `tests/site.test.js` is the starter smoke test. It renders the real active
-space through the real `WebApp` and checks that:
+space through the real `WebApp` and finds what to check by itself, so it works
+unchanged whatever pages and asset layout a project has:
 
-- `/` returns `200` with no `UNDEFINED` and no unresolved `@@` tag;
-- `/css/styles.css` and `/js/scripts.js` return `200` (adjust these paths if
-  the project serves its CSS and JavaScript differently);
-- an unknown page returns the `404` page.
+- **Every public page** in `pages/` (as listed by `listPublicPages()`, so
+  `_`-prefixed files are left out) returns `200` with no `UNDEFINED` and no
+  unresolved `@@` tag.
+- **Every local stylesheet and script** those pages reference
+  (`<link rel="stylesheet" href>` and `<script src>`) returns `200` with no
+  `UNDEFINED` or unresolved tag. This covers CSS and JavaScript rendered by
+  Altair and static files in `public/`, wherever they live. External URLs
+  (CDNs, analytics), inline scripts and commented-out tags are skipped. A
+  project without CSS or JavaScript passes this check with nothing to test.
+- **An unknown page** returns the `404` page.
+
+Each page and asset is reported as its own subtest, so a failure names it, for
+example `/about` or `/assets/missing.css (from /)`. If a page intentionally
+does not answer `200` (for example, a custom route redirects or protects it),
+add its path to `SKIP_PAGES` at the top of the file. Otherwise the file needs
+no changes.
 
 Add your own test files next to it, for example `tests/routes/api.test.js` or
 `tests/content/blog.test.js`.
