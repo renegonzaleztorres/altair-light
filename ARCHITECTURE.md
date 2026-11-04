@@ -74,7 +74,7 @@ altair-light/
 ├── index.js                    Application entry point
 ├── web-app/                    Project-owned Altair integration
 │   └── extensions/             Site-specific extensions (created when needed)
-├── extensions/                 Shared extension library (google-analytics, _template)
+├── extensions/                 Shared extension library (google-analytics, sitemap, seo, redirects, _template)
 ├── spaces/kinetic/             Active pages, components, data and assets
 ├── config/                     Versioned application settings
 ├── tests/                      Project-specific tests

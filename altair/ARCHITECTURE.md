@@ -780,7 +780,7 @@ class WebApp extends WebServer {
 ```
 
 - No config block, nothing happens. An extension with no settings is turned on
-  with an empty block: `"sitemap": {}`.
+  with an empty block: `"myExtension": {}`.
 - A config block must be an object, and `extensions` itself must be an object.
 - Startup logs (with `DEBUG=true`) one line per extension: `active`, or
   `inactive (no extensions.<configKey> config)`. The same list is available

@@ -10,36 +10,16 @@
  */
 
 import { defineExtension } from '../../altair/extensions.js';
+import { compileRoutePatterns as compileSharedPatterns } from '../_shared/config.js';
 
 const MEASUREMENT_ID_PATTERN = /^G-[A-Z0-9]{4,20}$/;
 const PAGE_OPT_OUT = /<meta\s+name=["']altair-analytics["']\s+content=["']off["']\s*\/?>/i;
 
 /**
- * compileRoutePatterns : turn "/exact" and "/prefix/*" patterns into matchers for normalized, lowercased paths
+ * compileRoutePatterns : excludePaths matchers ("/exact" and "/prefix/*"), see extensions/_shared/config.js
  * @param {unknown} patterns
- * @returns {Array<(path: string) => boolean>}
  */
-export const compileRoutePatterns = (patterns) => {
-
-  if (patterns === undefined) return [];
-  if (!Array.isArray(patterns)) {
-    throw new Error('extensions.googleAnalytics.excludePaths must be an array of route patterns');
-  }
-
-  return patterns.map((pattern) => {
-    const prefix = typeof pattern === 'string' && pattern.endsWith('/*');
-    const base = prefix ? pattern.slice(0, -2) : pattern;
-    if (typeof pattern !== 'string' || !/^(?:\/[^*\s]*)?$/.test(base) || (!prefix && base === '')) {
-      throw new Error(
-        `extensions.googleAnalytics.excludePaths: invalid pattern ${JSON.stringify(pattern)}; use /exact or /prefix/*`
-      );
-    }
-    const key = base.replace(/\/+$/, '').toLowerCase();
-    if (prefix) return key === '' ? () => true : (path) => path === key || path.startsWith(`${key}/`);
-    return (path) => path === (key || '/');
-  });
-
-} // compileRoutePatterns
+export const compileRoutePatterns = (patterns) => compileSharedPatterns(patterns, 'extensions.googleAnalytics.excludePaths');
 
 /**
  * resolveGoogleAnalytics : validate the config block; return the active settings or { inactive: reason }

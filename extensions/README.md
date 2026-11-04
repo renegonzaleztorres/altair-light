@@ -11,14 +11,23 @@ the cache rule) is "Extension API" in
 | Extension | Config key | What it does |
 | --- | --- | --- |
 | [`google-analytics`](google-analytics/README.md) | `googleAnalytics` | Adds the Google tag (gtag.js) to rendered pages |
+| [`sitemap`](sitemap/README.md) | `sitemap` | Serves `/sitemap.xml` of the public pages, and optionally `/robots.txt` |
+| [`seo`](seo/README.md) | `seo` | Sets the canonical link, description and Open Graph tags on rendered pages |
+| [`redirects`](redirects/README.md) | `redirects` | Redirects old URLs and moved sections to their new location |
+
+A typical public site lists `[seo, sitemap, redirects, googleAnalytics]`.
 
 ## Where extensions live
 
 ```text
 extensions/               shared library, ships with Altair-Light
   _template/              starting point for a new extension
+  _shared/                config helpers the library's extensions share
   google-analytics/
-web-app/extensions/       extensions for this site only (sitemap, seo, contact-form, …)
+  redirects/
+  seo/
+  sitemap/
+web-app/extensions/       extensions for this site only (a contact form, …)
 ```
 
 Projects pull updates from Altair-Light. Keep site-specific extensions under
