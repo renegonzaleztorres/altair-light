@@ -64,7 +64,7 @@ toolchain change.
    - Update `CHANGELOG.md` with your project name and dates
    - Adjust `config/default.json` with your settings
    - Use the existing `kinetic` space or create your own space in `spaces/`
-   - Modify `LICENSE` to reflect your project!
+   - Choose your project's license, keeping Altair-Light's notice (see [License your project](#license-your-project))
    - Modify `README.md` (this file) to reflect your project!
 
    See [Make It Your Own](#make-it-your-own) for everything a project can change.
@@ -88,7 +88,8 @@ a starting point, not a fixed design. Change them as much as the project needs.
 | Static files | `spaces/kinetic/public/` | Your images and favicon; the Altair-Light favicon and star chart are samples |
 | Application code | `web-app/`, `config/default.json` | Custom routes, hooks and which extensions are active |
 | Tests | `tests/` | Add tests for your routes, pages and content |
-| Project docs | `README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, `LICENSE`, `package.json` | Describe your project rather than Altair-Light |
+| Project docs | `README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, `package.json` | Describe your project rather than Altair-Light |
+| License | `LICENSE` | Your project's own terms, which may be proprietary (see [License your project](#license-your-project)) |
 
 Rename or replace the `kinetic` space if you like; `ACTIVE_SPACE` selects it.
 If you change the layout or templates while Tailwind is on, run
@@ -112,6 +113,22 @@ your own details: environment variables, custom routes, extensions in use,
 hosting and deploy steps. Keep the links to `altair/README.md` and
 `altair/ARCHITECTURE.md` so the framework stays documented. Record your
 project's architecture and custom behavior in `ARCHITECTURE.md`.
+
+#### License your project
+
+Altair-Light is MIT licensed. Your project can use any license, including a
+proprietary one, but the MIT License requires keeping Altair-Light's copyright
+and permission notice with the code you started from:
+
+- **`altair/LICENSE`** covers the framework module. Leave it in place.
+- **Root `LICENSE`** covers the rest of Altair-Light (`web-app/`,
+  `extensions/`, the starter space, tests and tooling). To keep your project
+  MIT, add your own copyright line below the existing one. For other terms,
+  including proprietary ones, first move the current `LICENSE`, unchanged, to
+  a file such as `LICENSES/altair-light.txt`, then write your own `LICENSE`.
+- **`package.json`**: set `license` to match, for example `"UNLICENSED"` for
+  proprietary code, and add `"private": true` so it can't be published to npm
+  by mistake.
 
 ### Installation
 

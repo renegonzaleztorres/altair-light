@@ -402,7 +402,7 @@ No config block, nothing happens. The contract is "Extension API" in
 
 [MIT](LICENSE)
 
-MIT License © 2025 [Rene' A. Gonzalez Torres and Lisa Gray-Gonzalez]
+MIT License © 2025-2026 Rene' A. Gonzalez Torres and Lisa Gray-Gonzalez
 
 ## Astronomy
 
