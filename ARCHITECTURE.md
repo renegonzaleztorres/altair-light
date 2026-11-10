@@ -181,6 +181,7 @@ spaces/kinetic/
 ├── css/                        CSS entry point and partials
 ├── js/                         JavaScript entry point and partials
 ├── public/                     Directly served static media
+│   ├── build/                  Generated Tailwind stylesheet, committed
 │   └── media/                  Managed media bytes excluded from Git
 ├── .altair/                    Tracked verified manifest; ignored lock/temp state
 └── templates/                  Private authoring templates
@@ -218,6 +219,24 @@ its output.
 `css/styles.css` and `js/scripts.js` are rendered through Altair and include
 private partials with `@@ELEM_`. They are not part of Route Cache v1. Static
 files beneath `public/` are served directly.
+
+### Tailwind CSS
+
+Tailwind is integrated through the `extensions/tailwind` extension and is
+active because `extensions.tailwind` exists in `config/default.json`. Deleting
+that block turns it off. Nothing in `altair/` knows about Tailwind.
+
+The Tailwind CLI reads `css/_tailwind.css` and writes
+`public/build/tailwind.css`. It runs only when `NODE_ENV=development`; the
+file is committed, so production needs neither a build step nor the Tailwind
+packages. The file bypasses Altair's CSS route and CleanCSS, which cannot
+process Tailwind's source syntax and drops rules from its output.
+
+The extension adds the stylesheet link to rendered pages and versions it with a
+hash of the file's contents. The current hash is served as immutable; any other
+is served as `no-cache`. Because the file is inside the active space, a kinetic
+release that replaces it is seen by the route cache watcher like any other
+content change. See [`extensions/tailwind/README.md`](extensions/tailwind/README.md).
 
 ### Managed Media
 

@@ -2,10 +2,11 @@
 <html lang="en" data-bs-theme="auto">
 @@ELEM_globals/_head.html
     
-<body class="-app-container">
+<!-- The body fills at least the window and main takes the spare height, so the footer sits at the bottom on short pages. -->
+<body class="-app-container flex min-h-dvh flex-col">
 
     <header>
       @@ELEM_globals/_nav.html
     </header>
 
-    <main>
+    <main class="flex-1">

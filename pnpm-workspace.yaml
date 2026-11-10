@@ -4,3 +4,9 @@
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
 minimumReleaseAgeIgnoreMissingTime: false
+
+# @tailwindcss/cli depends on @parcel/watcher, whose install script only
+# compiles from source when no prebuilt binary exists. The prebuilt binaries
+# come through optional dependencies, so the script stays denied.
+allowBuilds:
+  '@parcel/watcher': false

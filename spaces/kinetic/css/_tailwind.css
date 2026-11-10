@@ -1,0 +1,19 @@
+/*
+ * Tailwind entry file, read only by the Tailwind CLI (extensions/tailwind).
+ * Altair does not render this file, so template tags such as @@ELEM_ do not
+ * work here. The "_" prefix keeps it from being served as a stylesheet.
+ *
+ * source(none) turns off automatic detection: only the folders listed below
+ * are scanned for class names. Add a folder here if templates move elsewhere.
+ */
+@import "tailwindcss" source(none);
+
+@source "../pages";
+@source "../globals";
+@source "../components";
+@source "../templates";
+@source "../js";
+
+/* Project design tokens. Each one becomes utilities, e.g. --color-brand gives bg-brand. */
+@theme {
+}

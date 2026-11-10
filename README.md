@@ -64,8 +64,54 @@ toolchain change.
    - Update `CHANGELOG.md` with your project name and dates
    - Adjust `config/default.json` with your settings
    - Use the existing `kinetic` space or create your own space in `spaces/`
-   - Modify `LICENSE.md` to reflect your project!
+   - Modify `LICENSE` to reflect your project!
    - Modify `README.md` (this file) to reflect your project!
+
+   See [Make It Your Own](#make-it-your-own) for everything a project can change.
+
+### Make It Your Own
+
+Once forked, the project is yours. Altair-Light's pages, layout and styling are
+a starting point, not a fixed design. Change them as much as the project needs.
+
+**Yours to change freely:**
+
+| Area | Files | What to do |
+| --- | --- | --- |
+| Pages | `spaces/kinetic/pages/` | Replace `home.html` with your home page, add pages, and restyle `_404.html` and `_500.html` |
+| Page shell | `spaces/kinetic/globals/_header.html`, `_footer.html` | Change the `<body>` and `<main>` structure, the layout, and the footer content |
+| Head | `spaces/kinetic/globals/_head.html` | Title, description, favicon links, fonts and other `<head>` tags |
+| Navigation | `spaces/kinetic/globals/_nav.html` | Your site's menu (it starts as a placeholder) |
+| Components and templates | `spaces/kinetic/components/`, `templates/` | Add your own; `altair-banner` is sample content to replace or delete |
+| CSS and JavaScript | `spaces/kinetic/css/`, `js/` | Your styles and scripts; Tailwind design tokens go in `css/_tailwind.css` |
+| Content and data | `spaces/kinetic/data/` | `DATA.json` values, plus your own JSON (`altair.json` is sample content) |
+| Static files | `spaces/kinetic/public/` | Your images and favicon; the Altair-Light favicon and star chart are samples |
+| Application code | `web-app/`, `config/default.json` | Custom routes, hooks and which extensions are active |
+| Tests | `tests/` | Add tests for your routes, pages and content |
+| Project docs | `README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, `LICENSE`, `package.json` | Describe your project rather than Altair-Light |
+
+Rename or replace the `kinetic` space if you like; `ACTIVE_SPACE` selects it.
+If you change the layout or templates while Tailwind is on, run
+`pnpm css:build` before committing (see [Tailwind CSS](#tailwind-css)).
+
+**Shared with Altair-Light, so change with care:**
+
+- `altair/` is the versioned framework module. Leave it unedited and take its
+  updates from upstream; local changes there turn every framework upgrade into
+  a manual merge. Customize through `web-app/` and extensions instead.
+- `extensions/` holds the first-party extensions. Configure them in
+  `config/default.json`, or turn them off, rather than editing them. If you
+  need different behavior, write your own extension (see
+  [extensions/README.md](extensions/README.md)).
+
+**Rewrite this README for your project.** It currently documents Altair-Light
+itself. Replace the title, introduction, Philosophy and Astronomy sections with
+your project's name, purpose and requirements, and keep the setup,
+configuration, testing and deployment sections that still apply, updated with
+your own details: environment variables, custom routes, extensions in use,
+hosting and deploy steps. Keep the links to `altair/README.md` and
+`altair/ARCHITECTURE.md` so the framework stays documented. Record your
+project's architecture and custom behavior in `ARCHITECTURE.md`.
 
 ### Installation
 
@@ -236,6 +282,21 @@ Environment-based JSON configuration with hot-reload capability:
 Hot reload follows the configured DATA file path with stat polling, so editor
 atomic saves and rsync rename-overwrite deployments continue to be detected
 after the original file inode is replaced.
+
+### Tailwind CSS
+
+Altair-Light ships with Tailwind CSS v4 turned on. In development the server
+regenerates `public/build/tailwind.css` as templates change; production
+serves that committed file and doesn't run Tailwind. Run `pnpm css:build` before
+committing template changes; `pnpm test` fails if the file is out of date.
+
+To use a different CSS approach, delete the `tailwind` block from
+`config/default.json`. See
+[`extensions/tailwind/README.md`](extensions/tailwind/README.md).
+
+Tailwind's version is pinned exactly. To upgrade, change `tailwindcss` and
+`@tailwindcss/cli` together, run `pnpm css:build`, and commit the lockfile and
+regenerated stylesheet with them; the extension README has the steps.
 
 ### HTML Route Cache
 
@@ -411,4 +472,4 @@ server:
 
 ## Astronomy
 
-**Altair in the night sky**, designated as Alpha Aquilae, is a prominent star located in the constellation Aquila, known as the Eagle. It is the brightest star in this constellation and ranks as the twelfth brightest star in the night sky, with an apparent magnitude of 0.76. Altair is approximately 16.7 light-years from Earth.
+**Altair in the night sky**, designated as Alpha Aquilae, is a prominent star located in the constellation Aquila, known as the Eagle. It is the brightest star in this constellation and ranks as the twelfth brightest star in the night sky, with an apparent magnitude of 0.77. Altair is approximately 16.7 light-years from Earth.

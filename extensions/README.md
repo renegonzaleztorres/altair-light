@@ -14,8 +14,9 @@ the cache rule) is "Extension API" in
 | [`sitemap`](sitemap/README.md) | `sitemap` | Serves `/sitemap.xml` of the public pages, and optionally `/robots.txt` |
 | [`seo`](seo/README.md) | `seo` | Sets the canonical link, description and Open Graph tags on rendered pages |
 | [`redirects`](redirects/README.md) | `redirects` | Redirects old URLs and moved sections to their new location |
+| [`tailwind`](tailwind/README.md) | `tailwind` | Links a generated Tailwind CSS stylesheet on rendered pages; on by default, delete its config block to turn it off |
 
-A typical public site lists `[seo, sitemap, redirects, googleAnalytics]`.
+A typical public site lists `[tailwind, seo, sitemap, redirects, googleAnalytics]`.
 
 ## Where extensions live
 
@@ -27,6 +28,7 @@ extensions/               shared library, ships with Altair-Light
   redirects/
   seo/
   sitemap/
+  tailwind/
 web-app/extensions/       extensions for this site only (a contact form, …)
 ```
 

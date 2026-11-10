@@ -1,6 +1,8 @@
 @@ELEM_globals/_header.html
 
-  <h1>Home</h1>
-  <p>@@DATA_data/altair.json#description</p>
+  <!-- The body:has variants give this page alone a night-sky background, without changing the shared layout. -->
+  <div class="[body:has(&)]:bg-black [body:has(&)]:text-zinc-100 [body:has(&)>:is(header,footer)]:px-6 [body:has(&)>:is(header,footer)]:py-5 [body:has(&)>:is(header,footer)]:text-xs [body:has(&)>:is(header,footer)]:tracking-widest [body:has(&)>:is(header,footer)]:text-zinc-500">
+    @@ELEM_components/altair-banner/_altair-banner.html
+  </div>
 
 @@ELEM_globals/_footer.html

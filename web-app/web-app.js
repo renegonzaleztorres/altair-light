@@ -3,12 +3,13 @@
  */
 
 import WebServer from '../altair/altair.js';
+import { tailwind } from '../extensions/tailwind/tailwind.js';
 
 class WebApp extends WebServer{
 
   // extensions : opt-in features, active only when their extensions.<key> config block exists
-  // (see extensions/README.md), e.g. static extensions = [seo, sitemap, redirects, googleAnalytics];
-  static extensions = [];
+  // (see extensions/README.md), e.g. static extensions = [tailwind, seo, sitemap, redirects, googleAnalytics];
+  static extensions = [tailwind];
 
   // constructor : options pass through to WebServer, so tests can supply settings
   constructor(options = {}) {
