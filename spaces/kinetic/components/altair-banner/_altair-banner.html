@@ -1,7 +1,8 @@
 <!-- Summer Triangle star chart with Altair's description. Dark by design, so it can sit on any page. -->
-<section class="mx-auto max-w-6xl bg-black text-zinc-100">
+<!-- Narrow screens stack the chart above the text; wide screens put them side by side, vertically centred. -->
+<section class="mx-auto max-w-6xl bg-black text-zinc-100 lg:grid lg:grid-cols-2 lg:items-center lg:gap-16 lg:px-6 lg:py-12">
 
-  <!-- Narrow screens crop the image to its square chart; wide screens show all of it. -->
+  <!-- The image also contains a text column on its right; the square crop keeps only the chart. -->
   <figure class="relative mx-auto max-w-xl lg:max-w-none">
     <img
       src="/images/summer-triangle.png"
@@ -9,39 +10,47 @@
       height="900"
       fetchpriority="high"
       alt="Star chart of the Summer Triangle: lines join Deneb in Cygnus, Vega in Lyra and Altair in Aquila, with Altair highlighted in gold."
-      class="aspect-square w-full object-cover object-left lg:aspect-2/1"
+      class="aspect-square w-full object-cover object-left"
     >
     <!-- A slow pulse centred on Altair, positioned as a share of the image so it holds at any size. -->
     <span
       aria-hidden="true"
-      class="absolute top-[65.9%] left-[49.8%] aspect-square w-[9%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-yellow-300/70 motion-safe:animate-ping motion-safe:[animation-duration:3.5s] lg:left-[24.9%] lg:w-[4.5%]"
+      class="absolute top-[65.9%] left-[49.8%] aspect-square w-[9%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-yellow-300/70 motion-safe:animate-ping motion-safe:[animation-duration:3.5s]"
     ></span>
   </figure>
 
-  <div class="mx-auto max-w-xl px-6 pb-14 lg:max-w-none lg:px-0 lg:pt-2 lg:pb-20">
+  <div class="mx-auto max-w-xl px-6 pb-14 lg:max-w-none lg:px-0 lg:pb-0">
 
-    <!-- The image already shows these on wide screens, so they appear only where it is cropped. -->
-    <p class="text-xs tracking-[0.25em] text-yellow-300 uppercase lg:hidden">An asterism of the summer sky</p>
-    <h1 class="mt-3 font-serif text-4xl lg:sr-only">The Summer Triangle</h1>
-    <div class="mt-5 h-0.5 w-12 bg-yellow-300 lg:hidden"></div>
+    <p class="text-xs tracking-[0.25em] text-yellow-300 uppercase">An asterism of the summer sky</p>
+    <h1 class="mt-3 font-serif text-4xl lg:text-5xl">The Summer Triangle</h1>
+    <div class="mt-5 h-0.5 w-12 bg-yellow-300"></div>
+    <p class="mt-6 font-serif text-lg leading-relaxed text-zinc-300">Three bright stars from three constellations, high overhead on northern summer evenings.</p>
 
-    <ul class="mt-8 divide-y divide-white/10 lg:hidden">
-      <li class="flex items-baseline justify-between py-3 text-yellow-300">
-        <span class="font-serif text-xl">Altair</span>
-        <span class="text-xs tracking-widest uppercase">Aquila</span>
+    <ul class="mt-8 space-y-1">
+      <li class="-mx-3 flex items-center justify-between gap-4 rounded-md bg-yellow-300/10 px-3 py-3">
+        <div>
+          <p class="font-serif text-xl text-yellow-300">Altair</p>
+          <p class="mt-0.5 text-xs tracking-widest text-zinc-400 uppercase">Aquila · The Eagle</p>
+        </div>
+        <p class="font-serif text-sm text-zinc-400 italic">magnitude 0.77</p>
       </li>
-      <li class="flex items-baseline justify-between py-3">
-        <span class="font-serif text-xl">Vega</span>
-        <span class="text-xs tracking-widest text-zinc-400 uppercase">Lyra</span>
+      <li class="-mx-3 flex items-center justify-between gap-4 px-3 py-3">
+        <div>
+          <p class="font-serif text-xl">Vega</p>
+          <p class="mt-0.5 text-xs tracking-widest text-zinc-400 uppercase">Lyra · The Lyre</p>
+        </div>
+        <p class="font-serif text-sm text-zinc-400 italic">magnitude 0.03</p>
       </li>
-      <li class="flex items-baseline justify-between py-3">
-        <span class="font-serif text-xl">Deneb</span>
-        <span class="text-xs tracking-widest text-zinc-400 uppercase">Cygnus</span>
+      <li class="-mx-3 flex items-center justify-between gap-4 px-3 py-3">
+        <div>
+          <p class="font-serif text-xl">Deneb</p>
+          <p class="mt-0.5 text-xs tracking-widest text-zinc-400 uppercase">Cygnus · The Swan</p>
+        </div>
+        <p class="font-serif text-sm text-zinc-400 italic">magnitude 1.25</p>
       </li>
     </ul>
 
-    <!-- On wide screens this lines up with the text column inside the image. -->
-    <p class="mt-8 font-serif leading-relaxed text-zinc-400 lg:mt-0 lg:mr-[4.2%] lg:ml-[54.2%] [&_strong]:font-normal [&_strong]:text-zinc-100">@@DATA_data/altair.json#description</p>
+    <p class="mt-8 font-serif leading-relaxed text-zinc-400 [&_strong]:font-normal [&_strong]:text-zinc-100">@@DATA_data/altair.json#description</p>
 
   </div>
 </section>
