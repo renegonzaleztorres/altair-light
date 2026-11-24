@@ -62,3 +62,20 @@ export const optionalString = (value, setting) => {
   return value;
 
 } // optionalString
+
+/**
+ * envReader : the same contract as an extension's api.env(), for application code under web-app/
+ * that uses these libraries outside an extension (a sign-in route, a scheduled job)
+ * @param {Record<string, string | undefined>} [env] Defaults to process.env
+ * @returns {(name: string, options?: { required?: boolean }) => string | undefined}
+ */
+export const envReader = (env = process.env) => (name, { required = true } = {}) => {
+
+  const value = env[name];
+  if (value === undefined || value === '') {
+    if (required) throw new Error(`environment variable ${name} is required`);
+    return undefined;
+  }
+  return value;
+
+} // envReader

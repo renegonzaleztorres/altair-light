@@ -103,7 +103,9 @@ If you change the layout or templates while Tailwind is on, run
 - `extensions/` holds the first-party extensions. Configure them in
   `config/default.json`, or turn them off, rather than editing them. If you
   need different behavior, write your own extension (see
-  [extensions/README.md](extensions/README.md)).
+  [extensions/README.md](extensions/README.md)). Some come with starter
+  files that an installer adds to your project, such as a contact form:
+  `pnpm extension:add forms`.
 
 **Rewrite this README for your project.** It currently documents Altair-Light
 itself. Replace the title, introduction, Philosophy and Astronomy sections with

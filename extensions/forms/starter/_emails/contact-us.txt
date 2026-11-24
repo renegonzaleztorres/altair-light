@@ -1,0 +1,10 @@
+New message from the contact form
+
+{{_fields}}
+
+From page: {{_page}}
+Submitted: {{_submittedAtLocal}}
+           {{_submittedAt}} (UTC)
+Reference: {{_reference}}
+
+Reply to this email to answer {{name}} directly.

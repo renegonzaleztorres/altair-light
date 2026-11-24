@@ -1,0 +1,33 @@
+{
+  "origin": ["http://127.0.0.1:3000", "http://localhost:3000"],
+  "timeZone": "America/New_York",
+  "turnstile": { "siteKey": "1x00000000000000000000AA" },
+  "forms": {
+    "contact-us": {
+      "fields": {
+        "name": { "type": "text", "label": "Name", "required": true, "maxLength": 100 },
+        "email": { "type": "email", "label": "Email", "required": true },
+        "topic": { "type": "select", "label": "Topic", "required": true, "options": ["general", "support", "feedback"] },
+        "message": { "type": "textarea", "label": "Message", "required": true, "minLength": 10, "maxLength": 5000 },
+        "copy": { "type": "checkbox", "label": "Copy requested" }
+      },
+      "honeypot": "website",
+      "turnstile": true,
+      "notification": {
+        "from": "Altair-Light <no-reply@example.com>",
+        "to": ["hello@example.com"],
+        "replyToField": "email",
+        "subject": "[Contact · {{topic}}] {{name}}",
+        "template": "_emails/contact-us.txt"
+      },
+      "confirmation": {
+        "toField": "email",
+        "ifChecked": "copy",
+        "replyTo": "hello@example.com",
+        "subject": "We received your message",
+        "template": "_emails/contact-us-confirmation.txt"
+      },
+      "redirect": { "success": "/contact-us?status=sent", "error": "/contact-us" }
+    }
+  }
+}

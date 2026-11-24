@@ -14,6 +14,7 @@ the cache rule) is "Extension API" in
 | [`sitemap`](sitemap/README.md) | `sitemap` | Serves `/sitemap.xml` of the public pages, and optionally `/robots.txt` |
 | [`seo`](seo/README.md) | `seo` | Sets the canonical link, description and Open Graph tags on rendered pages |
 | [`redirects`](redirects/README.md) | `redirects` | Redirects old URLs and moved sections to their new location |
+| [`forms`](forms/README.md) | `forms` | Validates form submissions against fields in config and emails them (Amazon SES), with optional Turnstile and a confirmation to the sender |
 | [`tailwind`](tailwind/README.md) | `tailwind` | Links a generated Tailwind CSS stylesheet on rendered pages; on by default, delete its config block to turn it off |
 
 A typical public site lists `[tailwind, seo, sitemap, redirects, googleAnalytics]`.
@@ -22,14 +23,17 @@ A typical public site lists `[tailwind, seo, sitemap, redirects, googleAnalytics
 
 ```text
 extensions/               shared library, ships with Altair-Light
+  add.js                  the installer behind pnpm extension:add <name>
   _template/              starting point for a new extension
-  _shared/                config helpers the library's extensions share
+  _shared/                libraries the extensions share, also usable from web-app/:
+                          config helpers, the mailer (mail/) and Turnstile verification
+  forms/                  install.js and starter/: what pnpm extension:add forms installs
   google-analytics/
   redirects/
   seo/
   sitemap/
   tailwind/
-web-app/extensions/       extensions for this site only (a contact form, …)
+web-app/extensions/       extensions for this site only (a members area, …)
 ```
 
 Projects pull updates from Altair-Light. Keep site-specific extensions under
@@ -37,6 +41,21 @@ Projects pull updates from Altair-Light. Keep site-specific extensions under
 with them.
 
 ## Using an extension
+
+Some extensions have an installer that does these steps for you and adds
+working starter files, such as a contact page for `forms`:
+
+```bash
+pnpm extension:add forms             # or --dry-run to only list the changes
+```
+
+It copies the extension's `starter/` files into the active space, adds its
+block to `config/development.json`, appends its variables to `.env.example`
+(and `.env`), and lists it in `web-app/web-app.js`. It never overwrites a
+file: a file that differs is reported as a conflict and nothing is changed.
+The extension's README says what it installs. Extensions without an
+installer (`google-analytics`, `seo`, `sitemap`, `redirects`, `tailwind`)
+are set up by hand:
 
 1. List it in `web-app/web-app.js`. Order matters: setup and hooks run in list
    order, shutdown in reverse.
@@ -74,7 +93,12 @@ with them.
    - **No new npm dependencies** unless the README says why.
    - **The README explains every setup step**: code, config, `.env`, how to
      verify, and how to turn it off.
-4. Test with `createExtensionTestServer` from `altair/test/helpers.js`; see
+4. Optionally, add an installer: an `install.js` whose default export lists
+   the starter files, config block, environment block and package scripts
+   (the `InstallPlan` type in `add.js`; `forms/install.js` is an example),
+   with the files under `starter/`. Test that the starter files work with the
+   extension, as `forms/install.test.js` does.
+5. Test with `createExtensionTestServer` from `altair/test/helpers.js`; see
    `_template/my-extension.test.js`.
 
 ## Tests

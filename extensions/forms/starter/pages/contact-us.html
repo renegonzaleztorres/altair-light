@@ -1,0 +1,74 @@
+@@ELEM_globals/_header.html
+
+  <!--
+    Contact form, handled by the forms extension (extensions/forms).
+    The form posts to /forms/contact-us; its fields, rules and recipients are
+    configured under extensions.forms.forms.contact-us. Without JavaScript the
+    browser posts the form and the extension redirects back here with
+    ?status=…; with JavaScript, /forms/client.js (served by the extension)
+    submits it with fetch, shows errors next to each field and renders the
+    Turnstile widget. Installed by `pnpm extension:add forms`; this page is
+    now yours to change.
+  -->
+  <section class="mx-auto w-full max-w-xl px-6 py-12">
+    <h1 class="text-3xl font-bold">Contact us</h1>
+    <p class="mt-2 text-zinc-600">Send us a message and we will reply by email.</p>
+
+    <form data-altair-form action="/forms/contact-us" method="post" class="mt-8 space-y-5">
+
+      <p data-form-status role="status" aria-live="polite" class="hidden rounded border px-4 py-3 text-sm data-[state=error]:border-red-300 data-[state=error]:bg-red-50 data-[state=error]:text-red-800 data-[state=success]:border-green-300 data-[state=success]:bg-green-50 data-[state=success]:text-green-800"></p>
+
+      <div>
+        <label for="contact-name" class="block text-sm font-medium">Name</label>
+        <input id="contact-name" name="name" type="text" required maxlength="100" autocomplete="name"
+          class="mt-1 w-full rounded border border-zinc-300 px-3 py-2 aria-invalid:border-red-500">
+        <p data-error-for="name" class="mt-1 hidden text-sm text-red-700"></p>
+      </div>
+
+      <div>
+        <label for="contact-email" class="block text-sm font-medium">Email</label>
+        <input id="contact-email" name="email" type="email" required maxlength="254" autocomplete="email"
+          class="mt-1 w-full rounded border border-zinc-300 px-3 py-2 aria-invalid:border-red-500">
+        <p data-error-for="email" class="mt-1 hidden text-sm text-red-700"></p>
+      </div>
+
+      <div>
+        <label for="contact-topic" class="block text-sm font-medium">Topic</label>
+        <select id="contact-topic" name="topic" required
+          class="mt-1 w-full rounded border border-zinc-300 bg-white px-3 py-2 aria-invalid:border-red-500">
+          <option value="general">General question</option>
+          <option value="support">Support</option>
+          <option value="feedback">Feedback</option>
+        </select>
+        <p data-error-for="topic" class="mt-1 hidden text-sm text-red-700"></p>
+      </div>
+
+      <div>
+        <label for="contact-message" class="block text-sm font-medium">Message</label>
+        <textarea id="contact-message" name="message" required minlength="10" maxlength="5000" rows="6"
+          class="mt-1 w-full rounded border border-zinc-300 px-3 py-2 aria-invalid:border-red-500"></textarea>
+        <p data-error-for="message" class="mt-1 hidden text-sm text-red-700"></p>
+      </div>
+
+      <div class="flex items-start gap-2">
+        <input id="contact-copy" name="copy" type="checkbox" class="mt-1">
+        <label for="contact-copy" class="text-sm">Email me a copy of this message</label>
+      </div>
+
+      <!-- Honeypot: off screen for people, filled in by simple bots. The name matches extensions.forms.forms.contact-us.honeypot. -->
+      <div class="absolute -left-[9999px]" aria-hidden="true">
+        <label for="contact-website">Website</label>
+        <input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off">
+      </div>
+
+      <!-- The Turnstile widget renders here when the form has turnstile: true -->
+      <div data-turnstile></div>
+      <noscript><p class="text-sm text-zinc-600">This form uses a JavaScript spam check; please enable JavaScript to send it.</p></noscript>
+
+      <button type="submit" class="rounded bg-zinc-900 px-5 py-2 font-medium text-white hover:bg-zinc-700 disabled:opacity-50">Send message</button>
+    </form>
+  </section>
+
+  <script src="/forms/client.js" defer></script>
+
+@@ELEM_globals/_footer.html

@@ -1,0 +1,14 @@
+Hi {{name}},
+
+Thank you for contacting us. We received your message on
+{{_submittedAtLocal}} and will reply to {{email}} as soon as we can.
+
+A copy of what you sent:
+
+{{_fields}}
+
+Reference: {{_reference}}
+
+If you did not send this message, you can ignore this email.
+
+{{_site}}

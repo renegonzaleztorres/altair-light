@@ -12,6 +12,7 @@
     "media:publish": "node altair/media-publisher-cli.js",
     "css:build": "node extensions/tailwind/build.js",
     "css:check": "node extensions/tailwind/build.js --check",
+    "extension:add": "node extensions/add.js",
     "start": "node index.js"
   },
   "author": "",
