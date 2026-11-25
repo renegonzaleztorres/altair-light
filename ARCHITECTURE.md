@@ -232,9 +232,10 @@ file is committed, so production needs neither a build step nor the Tailwind
 packages. The file bypasses Altair's CSS route and CleanCSS, which cannot
 process Tailwind's source syntax and drops rules from its output.
 
-The extension adds the stylesheet link to rendered pages and versions it with a
-hash of the file's contents. The current hash is served as immutable; any other
-is served as `no-cache`. Because the file is inside the active space, a kinetic
+The extension adds the stylesheet link to rendered pages. In production the
+link names the file by a hash of its contents (`/build/tailwind.<hash>.css`), a
+route the extension serves: the current hash as immutable, any other as
+`no-cache`. Because the file is inside the active space, a kinetic
 release that replaces it is seen by the route cache watcher like any other
 content change. See [`extensions/tailwind/README.md`](extensions/tailwind/README.md).
 

@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createExtensionTestServer } from '../../altair/test/helpers.js';
-import { CSS_ROUTE, IMMUTABLE, createTailwind, findCli, injectStylesheet, tailwind } from './tailwind.js';
+import { CSS_ROUTE, IMMUTABLE, createTailwind, findCli, hashedRoute, injectStylesheet, tailwind } from './tailwind.js';
 
 const PAGE = '<!doctype html><html><head><title>Page</title><link href="/css/styles.css" rel="stylesheet"></head><body></body></html>';
 const PAGES = { 'home.html': PAGE, 'about.html': PAGE, 'admin/panel.html': PAGE, '_404.html': PAGE };
@@ -62,25 +62,38 @@ test('does nothing without its config block', async () => {
   }
 });
 
-test('links the stylesheet with a content version, before the page\'s first stylesheet', async () => {
+test('links the stylesheet under a hashed name, before the page\'s first stylesheet', async () => {
   await withServer({}, async ({ request }) => {
     const page = await html(request, '/about');
-    const link = `<link rel="stylesheet" href="${CSS_ROUTE}?v=${version(CSS)}">`;
+    const link = `<link rel="stylesheet" href="/build/tailwind.${version(CSS)}.css">`;
     assert.ok(page.includes(link));
     assert.ok(page.indexOf(link) < page.indexOf('/css/styles.css'));
   });
 });
 
-test('caches the current version as immutable and anything else as no-cache', async () => {
+test('caches the current hashed name as immutable and anything else as no-cache', async () => {
   await withServer({}, async ({ request }) => {
-    const current = await request(`${CSS_ROUTE}?v=${version(CSS)}`);
+    const current = await request(hashedRoute(version(CSS)));
     assert.equal(current.status, 200);
     assert.equal(current.headers.get('cache-control'), IMMUTABLE);
     assert.match(current.headers.get('content-type'), /text\/css/);
     assert.equal(await current.text(), CSS);
 
-    assert.equal((await request(`${CSS_ROUTE}?v=stale`)).headers.get('cache-control'), 'no-cache');
+    const head = await request(hashedRoute(version(CSS)), { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get('cache-control'), IMMUTABLE);
+
+    // An old hash gets the current file, without pinning it under that name
+    const stale = await request(hashedRoute('0'.repeat(12)));
+    assert.equal(stale.headers.get('cache-control'), 'no-cache');
+    assert.equal(await stale.text(), CSS);
+
+    // The file's own name, with or without an old ?v= link, is never pinned either
     assert.equal((await request(CSS_ROUTE)).headers.get('cache-control'), 'no-cache');
+    assert.equal((await request(`${CSS_ROUTE}?v=${version(CSS)}`)).headers.get('cache-control'), 'no-cache');
+
+    assert.equal((await request('/build/tailwind.zzz.css')).status, 404);
+    assert.equal((await request(`/build/tailwind.${version(CSS)}0.css`)).status, 404);
   });
 });
 
@@ -98,9 +111,11 @@ test('picks up a stylesheet replaced without a restart', async () => {
     await html(request, '/');
     await writeFile(output, replacement);
 
-    assert.ok((await html(request, '/')).includes(`?v=${version(replacement)}`));
-    assert.equal((await request(`${CSS_ROUTE}?v=${version(replacement)}`)).headers.get('cache-control'), IMMUTABLE);
-    assert.equal((await request(`${CSS_ROUTE}?v=${version(CSS)}`)).headers.get('cache-control'), 'no-cache');
+    assert.ok((await html(request, '/')).includes(hashedRoute(version(replacement))));
+    const current = await request(hashedRoute(version(replacement)));
+    assert.equal(current.headers.get('cache-control'), IMMUTABLE);
+    assert.equal(await current.text(), replacement);
+    assert.equal((await request(hashedRoute(version(CSS)))).headers.get('cache-control'), 'no-cache');
   });
 });
 
@@ -109,19 +124,19 @@ test('route-cached pages keep their link until the cache is cleared, and the ETa
   await withServer({ settings: { ...PRODUCTION, enableRouteCache: true, routeCacheWatch: false } }, async ({ request, server, output }) => {
     const first = await request('/');
     const etag = first.headers.get('etag');
-    assert.ok((await first.text()).includes(`?v=${version(CSS)}`));
+    assert.ok((await first.text()).includes(hashedRoute(version(CSS))));
 
     await writeFile(output, replacement);
     const cached = await request('/');
     assert.equal(cached.headers.get('etag'), etag);
-    assert.ok((await cached.text()).includes(`?v=${version(CSS)}`));
-    assert.equal((await request(`${CSS_ROUTE}?v=${version(CSS)}`)).headers.get('cache-control'), 'no-cache');
+    assert.ok((await cached.text()).includes(hashedRoute(version(CSS))));
+    assert.equal((await request(hashedRoute(version(CSS)))).headers.get('cache-control'), 'no-cache');
 
     server.invalidateRouteCache('test');
     const refreshed = await request('/', { headers: { 'If-None-Match': etag } });
     assert.equal(refreshed.status, 200);
     assert.notEqual(refreshed.headers.get('etag'), etag);
-    assert.ok((await refreshed.text()).includes(`?v=${version(replacement)}`));
+    assert.ok((await refreshed.text()).includes(hashedRoute(version(replacement))));
   });
 });
 
@@ -184,6 +199,7 @@ test('in development it watches, links without a version, and stops on shutdown'
 
     assert.ok((await html(request, '/')).includes(`href="${CSS_ROUTE}">`));
     assert.equal((await request(CSS_ROUTE)).headers.get('cache-control'), 'no-store');
+    assert.equal((await request(hashedRoute(version(CSS)))).status, 404, 'no hashed name in development');
 
     await server.shutdown();
     assert.equal(child.killed, true);
@@ -227,6 +243,8 @@ test('injectStylesheet handles the shapes a page can take', () => {
   assert.equal(injectStylesheet('<head><title>x</title></head>', href), `<head><title>x</title>${link}</head>`);
   assert.equal(injectStylesheet('<p>fragment</p>', href), '<p>fragment</p>');
   assert.equal(injectStylesheet(`<head><link rel="stylesheet" href="${href}"></head>`, href), `<head><link rel="stylesheet" href="${href}"></head>`);
+  const hashed = `<head><link rel="stylesheet" href="${hashedRoute('abcdef012345')}"></head>`;
+  assert.equal(injectStylesheet(hashed, hashedRoute('0'.repeat(12))), hashed, 'a page that already links it is unchanged');
   assert.equal(
     injectStylesheet('<head><!-- <link rel="stylesheet" href="/old.css"> --><link rel=stylesheet href="/a.css"></head>', href),
     `<head><!-- <link rel="stylesheet" href="/old.css"> -->${link}<link rel=stylesheet href="/a.css"></head>`
@@ -247,7 +265,8 @@ test('a stylesheet deleted after startup keeps the last known version', async ()
   await withServer({}, async ({ request, output }) => {
     assert.equal(await readFile(output, 'utf8'), CSS);
     await rm(output);
-    assert.ok((await html(request, '/')).includes(`?v=${version(CSS)}`));
+    assert.ok((await html(request, '/')).includes(hashedRoute(version(CSS))));
+    assert.equal(await (await request(hashedRoute(version(CSS)))).text(), CSS);
     assert.equal((await request(CSS_ROUTE)).status, 404);
   });
 });

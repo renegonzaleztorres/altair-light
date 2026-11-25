@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createTestSettings } from '../altair/test/helpers.js';
 import defaults from '../config/default.json' with { type: 'json' };
-import { CSS_ROUTE, IMMUTABLE, findCli } from '../extensions/tailwind/tailwind.js';
+import { IMMUTABLE, findCli } from '../extensions/tailwind/tailwind.js';
 import WebApp from '../web-app/web-app.js';
 
 // Checks this project's real Tailwind setup. Both tests skip themselves when
@@ -25,7 +25,7 @@ test('the generated stylesheet matches its sources', { skip: notConfigured || (!
   assert.equal(status, 0, `${stdout}${stderr}`);
 });
 
-test('production pages link the generated stylesheet with a long-lived version', { skip: notConfigured }, async (t) => {
+test('production pages link the generated stylesheet under a long-lived hashed name', { skip: notConfigured }, async (t) => {
   const app = new WebApp({ settings: createTestSettings({
     nodeEnv: 'production',
     enableDataWatch: false,
@@ -37,7 +37,7 @@ test('production pages link the generated stylesheet with a long-lived version',
   try {
     const request = (pathname) => app.app.request(`http://altair.test${pathname}`);
     const html = await (await request('/')).text();
-    const href = html.match(new RegExp(`${CSS_ROUTE}\\?v=[0-9a-f]{12}`))?.[0];
+    const href = html.match(/\/build\/tailwind\.[0-9a-f]{12}\.css/)?.[0];
     if (!href) return t.skip('the home page is excluded from Tailwind');
 
     const response = await request(href);

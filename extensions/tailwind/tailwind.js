@@ -4,8 +4,9 @@
  *
  * Links one Tailwind stylesheet, generated ahead of time into the active
  * space's public folder, on rendered HTML pages. In development it also runs
- * the Tailwind CLI in watch mode; in every other environment Tailwind does not
- * run and the generated file is simply served. Active only when the
+ * the Tailwind CLI in watch mode and links the file as it is; in every other
+ * environment Tailwind does not run, and the file is linked and served under
+ * a name carrying a hash of its contents (/build/tailwind.<hash>.css). Active only when the
  * application lists it and settings.extensions.tailwind exists; delete that
  * block to turn Tailwind off. Pages are excluded by config (excludePaths,
  * excludeErrorPages) or by a page's <meta name="altair-tailwind" content="off">.
@@ -22,6 +23,17 @@ import { compileRoutePatterns } from '../_shared/config.js';
 
 export const CSS_ROUTE = '/build/tailwind.css';
 export const IMMUTABLE = 'public, max-age=31536000, immutable';
+export const HASH_LENGTH = 12;
+
+/**
+ * hashedRoute : the production URL of the stylesheet whose contents hash to hash
+ * @param {string} hash
+ */
+export const hashedRoute = (hash) => CSS_ROUTE.replace(/\.css$/, `.${hash}.css`);
+
+// The hashed URL as a Hono route; the file name is one path segment
+const HASHED_ROUTE_PATTERN = `/build/:file{tailwind\\.[0-9a-f]{${HASH_LENGTH}}\\.css}`;
+const LINKED = /\/build\/tailwind(?:\.[0-9a-f]+)?\.css/;
 
 const PAGE_OPT_OUT = /<meta\s+name=["']altair-tailwind["']\s+content=["']off["']\s*\/?>/i;
 const ROUTINE_CLI_OUTPUT = /^(?:≈ tailwindcss|Done in )/;
@@ -94,12 +106,13 @@ export const cliEnvironment = () => {
 } // cliEnvironment
 
 /**
- * createContentVersion : a function returning the file's short content hash, re-read only when the file changes
+ * createStylesheetReader : a function returning the file's contents and their short hash,
+ * re-read only when the file's size or modification time changes
  * @param {string} file
  */
-export const createContentVersion = (file) => {
+export const createStylesheetReader = (file) => {
 
-  /** @type {{ mtimeMs: number, size: number, hash: string } | undefined} */
+  /** @type {{ mtimeMs: number, size: number, hash: string, body: Buffer } | undefined} */
   let seen;
 
   return async () => {
@@ -107,17 +120,18 @@ export const createContentVersion = (file) => {
     try {
       stats = await stat(file);
     } catch (error) {
-      if (seen) return seen.hash; // removed after startup: keep linking the last known version
+      if (seen) return seen; // removed after startup: keep linking and serving the last known version
       throw error;
     }
     if (!seen || seen.mtimeMs !== stats.mtimeMs || seen.size !== stats.size) {
-      const hash = createHash('sha256').update(await readFile(file)).digest('hex').slice(0, 12);
-      seen = { mtimeMs: stats.mtimeMs, size: stats.size, hash };
+      const body = await readFile(file);
+      const hash = createHash('sha256').update(body).digest('hex').slice(0, HASH_LENGTH);
+      seen = { mtimeMs: stats.mtimeMs, size: stats.size, hash, body };
     }
-    return seen.hash;
+    return seen;
   };
 
-} // createContentVersion
+} // createStylesheetReader
 
 /**
  * injectStylesheet : add the link before the page's first stylesheet in <head>, or before </head>, once;
@@ -127,7 +141,7 @@ export const createContentVersion = (file) => {
  */
 export const injectStylesheet = (html, href) => {
 
-  if (html.includes(CSS_ROUTE)) return html;
+  if (LINKED.test(html)) return html;
   const markup = html.replace(/<!--[\s\S]*?-->/g, (comment) => ' '.repeat(comment.length));
   const headEnd = markup.search(/<\/head\s*>/i);
   if (headEnd === -1) return html;
@@ -206,12 +220,12 @@ export const createTailwind = ({ spawnProcess = spawn, findCli: locateCli = find
   name: 'tailwind',
   apiVersion: 1,
   configKey: 'tailwind',
-  async setup({ config, settings, log, warn, addMiddleware }) {
+  async setup({ config, settings, log, warn, addMiddleware, addRoute }) {
 
     const { excludePaths, excludeErrorPages } = resolveTailwind(config);
     const { entry, output } = tailwindPaths(settings);
     const development = settings.nodeEnv === 'development';
-    const contentVersion = createContentVersion(output);
+    const readStylesheet = createStylesheetReader(output);
     const cli = development ? await locateCli(settings.appRootPath) : null;
 
     let watcher = null;
@@ -219,23 +233,33 @@ export const createTailwind = ({ spawnProcess = spawn, findCli: locateCli = find
       await assertFileExists(() => stat(entry), `Tailwind entry file ${entry} is missing`);
       watcher = startWatcher({ spawnProcess, cli, cwd: settings.appRootPath, entry, output, log, warn });
     } else {
-      await assertFileExists(contentVersion, `Tailwind stylesheet ${output} is missing; run pnpm css:build`);
+      await assertFileExists(readStylesheet, `Tailwind stylesheet ${output} is missing; run pnpm css:build`);
       if (development) warn('the Tailwind CLI is not installed, so CSS will not rebuild; serving the existing stylesheet');
     }
     log(`active (${watcher ? 'watching' : 'serving the generated stylesheet'}; ${excludePaths.length} excluded path patterns)`);
 
-    // Runs after the static file is served, so it only adds a header to that one response
+    // The file under its own name: linked in development, and never pinned in a cache in production,
+    // where pages link the hashed name instead. Runs after the static file is served, so it only
+    // adds a header to that one response.
     addMiddleware(async (context, next) => {
       await next();
       if (context.req.path !== CSS_ROUTE || context.res.status !== 200) return;
-      if (development) {
-        context.header('Cache-Control', 'no-store');
-        return;
-      }
-      // A stale or missing version gets the current file, but must not pin it under that URL
-      const current = context.req.query('v') === await contentVersion();
-      context.header('Cache-Control', current ? IMMUTABLE : 'no-cache');
+      context.header('Cache-Control', development ? 'no-store' : 'no-cache');
     });
+
+    // The hashed name, which only exists as this route. The current hash is cached for a year; any
+    // other (a page rendered before a deploy, or another server mid-deploy) gets the current file,
+    // which must not be pinned under that name.
+    if (!development) {
+      addRoute('GET', HASHED_ROUTE_PATTERN, async (context) => {
+        const { hash, body } = await readStylesheet();
+        const requested = context.req.param('file').slice('tailwind.'.length, -'.css'.length);
+        return context.body(new Uint8Array(body), 200, {
+          'Content-Type': 'text/css; charset=utf-8',
+          'Cache-Control': requested === hash ? IMMUTABLE : 'no-cache'
+        });
+      });
+    }
 
     return {
       // Route-cached: the decision and the version depend only on path, kind, content and config.
@@ -245,7 +269,7 @@ export const createTailwind = ({ spawnProcess = spawn, findCli: locateCli = find
         const normalizedRoute = route.toLowerCase();
         if (excludePaths.some((matches) => matches(normalizedRoute))) return content;
         if (PAGE_OPT_OUT.test(content)) return content;
-        return injectStylesheet(content, development ? CSS_ROUTE : `${CSS_ROUTE}?v=${await contentVersion()}`);
+        return injectStylesheet(content, development ? CSS_ROUTE : hashedRoute((await readStylesheet()).hash));
       },
       ...(watcher ? { shutdown: () => watcher.stop() } : {})
     };
