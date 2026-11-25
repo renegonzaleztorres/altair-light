@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Altair version | 4.3.0 |
+| Altair version | 4.4.0 |
 | Document owner | `altair/` module |
 | Purpose | Canonical framework architecture and LLM agent reference |
 | Application architecture | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
@@ -193,11 +193,11 @@ Lib → HTTPServer → WebServer → WebApp
 **Media publisher** (`altair/media-publisher.js`, CLI-only):
 - Derives media and manifest paths from the selected active space
 - Streams inspection and SHA-256 hashing, classifies changes, and atomically writes verified state
-- Retains local and remote-only objects; never infers deletion
+- Retains remote-only objects and never deletes remote ones; removes local copies only with `MEDIA_PUBLISH_REMOVE_LOCAL=true`, after the manifest records them
 
 **S3-compatible adapter** (`altair/media-provider-s3.js`, CLI-only):
 - Dynamically loaded by `media-publisher-cli.js`, never by the HTTP server
-- Uses bounded multipart uploads and verifies remote size, type, and SHA-256 metadata
+- Uses bounded multipart uploads; `verify()` checks remote size, type, and SHA-256 metadata, and public delivery when enabled
 - Supports AWS S3 and Cloudflare R2 configuration
 
 ---
@@ -330,6 +330,7 @@ short-lived publisher:
 | `MEDIA_PUBLISH_REGION` | None | Required provider region; R2 uses `auto`. |
 | `MEDIA_PUBLISH_FORCE_PATH_STYLE` | `false` | Boolean for providers requiring path-style addressing. |
 | `MEDIA_PUBLISH_VERIFY_PUBLIC` | `false` | Boolean enabling a post-upload public delivery check. |
+| `MEDIA_PUBLISH_REMOVE_LOCAL` | `false` | Boolean removing local copies after publication; requires public verification and a fallback to the same CDN origin. |
 | `MEDIA_PUBLISH_ACCESS_KEY_ID` | None | Required publisher-scoped access-key ID. |
 | `MEDIA_PUBLISH_SECRET_ACCESS_KEY` | None | Required publisher-scoped secret key. |
 | `MEDIA_PUBLISH_SESSION_TOKEN` | Empty | Optional temporary-credential token. |
@@ -364,7 +365,19 @@ checkpoint, releases `.altair/media-publication.lock` and exits; a second
 signal exits at once. The lock records its PID and host. A later run removes a
 lock whose process on this host has exited, and refuses a lock held by a live
 process, a lock from another host, or an unreadable lock (delete it by hand
-only when no publication is running). Publication never removes local or remote objects.
+only when no publication is running). Publication never removes remote objects.
+
+With `MEDIA_PUBLISH_REMOVE_LOCAL=true`, a successful batch is followed by a
+removal pass, after the manifest is written. Configuration is refused unless
+`MEDIA_PUBLISH_VERIFY_PUBLIC=true` and `MEDIA_CDN_FALLBACK=true` redirect to
+the same `MEDIA_CDN_BASE_URL`; the publisher reads both through the same
+settings as the server. Files uploaded in the batch were verified by the
+upload; files from earlier batches are verified again through the adapter's
+`verify()`. A file is removed only if its size, modification time and inode
+still match its inspection, and emptied folders below the media folder are
+removed. Every file is attempted; any failure leaves that file in place and
+fails the run. Results include `removed`, which on a dry run counts the files
+that would be removed.
 Provider-neutral `MEDIA_PUBLISH_*` credentials are scoped to this command and
 passed explicitly to the adapter; global AWS SDK credential variables are not
 used.

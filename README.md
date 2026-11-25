@@ -190,6 +190,7 @@ MEDIA_PUBLISH_ENDPOINT=""
 MEDIA_PUBLISH_REGION=""
 MEDIA_PUBLISH_FORCE_PATH_STYLE=false
 MEDIA_PUBLISH_VERIFY_PUBLIC=false
+MEDIA_PUBLISH_REMOVE_LOCAL=false
 MEDIA_PUBLISH_ACCESS_KEY_ID=""
 MEDIA_PUBLISH_SECRET_ACCESS_KEY=""
 MEDIA_PUBLISH_SESSION_TOKEN=""
@@ -259,6 +260,7 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 | `MEDIA_PUBLISH_REGION` | None | Required when publishing; use the actual AWS region or `auto` for R2. |
 | `MEDIA_PUBLISH_FORCE_PATH_STYLE` | `false` | Boolean. Enable only for an S3-compatible provider that requires path-style bucket addressing. |
 | `MEDIA_PUBLISH_VERIFY_PUBLIC` | `false` | Boolean. Also verify public delivery through `MEDIA_CDN_BASE_URL` after storage verification. |
+| `MEDIA_PUBLISH_REMOVE_LOCAL` | `false` | Boolean. Remove each local file once it is published and verified through the CDN. Requires `MEDIA_PUBLISH_VERIFY_PUBLIC=true` and `MEDIA_CDN_FALLBACK=true`. |
 | `MEDIA_PUBLISH_ACCESS_KEY_ID` | None | Required provider-neutral publisher access-key ID. |
 | `MEDIA_PUBLISH_SECRET_ACCESS_KEY` | None | Required provider-neutral publisher secret key. |
 | `MEDIA_PUBLISH_SESSION_TOKEN` | Empty | Optional token for temporary credentials. |
@@ -357,8 +359,17 @@ pnpm media:publish
 
 The verified publication manifest is derived from the selected active space at
 `<ACTIVE_SPACE>/.altair/media-publication.json`. The publisher uploads only new
-or byte-changed files, retains local and remote-only files, streams large
-objects, and exits without adding memory or background work to the web server.
+or byte-changed files, retains remote-only files, streams large objects, and
+exits without adding memory or background work to the web server.
+
+By default, local files stay after publishing. On a server whose disk should
+not keep media, such as a development instance on a cloud VPS, set
+`MEDIA_PUBLISH_REMOVE_LOCAL=true`: each run then removes the local copy of
+every published file once the manifest records it. It requires
+`MEDIA_PUBLISH_VERIFY_PUBLIC=true` and `MEDIA_CDN_FALLBACK=true` with one
+`MEDIA_CDN_BASE_URL`, so a file is removed only after the CDN serves it and
+requests for it are redirected there. Media is not in Git, so the bucket then
+holds the only copy: turn on bucket versioning or backups first.
 
 With `MEDIA_CDN_FALLBACK=true`, a missing local `/media/...` `GET` or `HEAD`
 receives a safe `307` to `MEDIA_CDN_BASE_URL`. Local files always win. In

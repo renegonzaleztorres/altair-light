@@ -58,6 +58,7 @@ MEDIA_PUBLISH_ENDPOINT=""
 MEDIA_PUBLISH_REGION=""
 MEDIA_PUBLISH_FORCE_PATH_STYLE=false
 MEDIA_PUBLISH_VERIFY_PUBLIC=false
+MEDIA_PUBLISH_REMOVE_LOCAL=false
 MEDIA_PUBLISH_ACCESS_KEY_ID=""
 MEDIA_PUBLISH_SECRET_ACCESS_KEY=""
 MEDIA_PUBLISH_SESSION_TOKEN=""
@@ -97,6 +98,7 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 - MEDIA_PUBLISH_BUCKET / MEDIA_PUBLISH_ENDPOINT / MEDIA_PUBLISH_REGION — Remote storage destination.
 - MEDIA_PUBLISH_FORCE_PATH_STYLE — Enable only when the provider requires path-style addressing (default false).
 - MEDIA_PUBLISH_VERIFY_PUBLIC — Verify public CDN delivery after storage verification (default false).
+- MEDIA_PUBLISH_REMOVE_LOCAL — Remove each local file once it is published (default false); requires MEDIA_PUBLISH_VERIFY_PUBLIC and MEDIA_CDN_FALLBACK.
 - MEDIA_PUBLISH_ACCESS_KEY_ID / MEDIA_PUBLISH_SECRET_ACCESS_KEY / MEDIA_PUBLISH_SESSION_TOKEN — Provider-neutral publisher credentials; the session token is optional.
 - DATA_LOCATION — Subdirectory under ACTIVE_SPACE containing DATA files
 - DATA_FILE — JSON file containing data
@@ -131,6 +133,7 @@ WEBSOCKET_ALLOWED_ORIGINS=""
 | `MEDIA_PUBLISH_REGION` | None | Required AWS region, or `auto` for Cloudflare R2. |
 | `MEDIA_PUBLISH_FORCE_PATH_STYLE` | `false` | Boolean. Enable only when required by the compatible provider. |
 | `MEDIA_PUBLISH_VERIFY_PUBLIC` | `false` | Boolean. Performs an additional public `HEAD` check through `MEDIA_CDN_BASE_URL`. |
+| `MEDIA_PUBLISH_REMOVE_LOCAL` | `false` | Boolean. Removes each local file once it is published and verified through the CDN. Requires `MEDIA_PUBLISH_VERIFY_PUBLIC=true`, and `MEDIA_CDN_FALLBACK=true` redirecting to the same `MEDIA_CDN_BASE_URL`. |
 | `MEDIA_PUBLISH_ACCESS_KEY_ID` | None | Required media-publisher access-key ID. |
 | `MEDIA_PUBLISH_SECRET_ACCESS_KEY` | None | Required media-publisher secret key. |
 | `MEDIA_PUBLISH_SESSION_TOKEN` | Empty | Optional temporary-credential token. |
@@ -253,6 +256,7 @@ MEDIA_PUBLISH_ENDPOINT=""
 MEDIA_PUBLISH_REGION="us-east-1"
 MEDIA_PUBLISH_FORCE_PATH_STYLE=false
 MEDIA_PUBLISH_VERIFY_PUBLIC=false
+MEDIA_PUBLISH_REMOVE_LOCAL=false
 MEDIA_PUBLISH_ACCESS_KEY_ID=""
 MEDIA_PUBLISH_SECRET_ACCESS_KEY=""
 MEDIA_PUBLISH_SESSION_TOKEN=""
@@ -277,8 +281,8 @@ pnpm media:publish -- --json
 The command accepts common raster images, audio, video, and PDF content
 recognized from its bytes, with a 20 GiB per-file v1 limit. SVG and executable
 or unrecognized content are rejected. Files stream during hashing and upload;
-local files are retained, and a missing local file never deletes its remote
-object.
+local files are retained unless `MEDIA_PUBLISH_REMOVE_LOCAL=true` (below), and
+a missing local file never deletes its remote object.
 
 When fallback is enabled, normal local static serving runs first. A missing,
 safe `GET` or `HEAD` under `/media/` receives a temporary `307` to the same CDN
@@ -291,6 +295,42 @@ Publish and verify media before activating HTML or kinetic content that first
 references it. Stable v1 object names use a conservative five-minute cache
 policy; purge a provider cache after replacement when immediate propagation is
 required.
+
+#### Removing local copies after publishing
+
+Normally local files stay after publishing, which suits development machines.
+On a server whose disk should not keep media, such as a development instance
+on a cloud VPS, set:
+
+```dotenv
+MEDIA_PUBLISH_REMOVE_LOCAL=true
+MEDIA_PUBLISH_VERIFY_PUBLIC=true
+MEDIA_CDN_FALLBACK=true
+MEDIA_CDN_BASE_URL="https://media.example.com"
+```
+
+The publisher refuses to start unless public verification is on and the CDN
+fallback redirects to the same `MEDIA_CDN_BASE_URL`, so a file is removed only
+after the CDN served it and later requests for it are redirected there. Each
+run then:
+
+1. Uploads and verifies new and changed files as usual. If any upload fails,
+   nothing is removed.
+2. Writes the manifest, so every removed file is recorded first.
+3. Checks files published in earlier runs again, in the bucket and through the
+   CDN.
+4. Removes each local file that has not changed since it was inspected, then
+   any folders left empty. The media folder and `.gitkeep` stay.
+
+A file that fails its check or changed meanwhile is kept, and the run reports
+it and exits with status 1. Removed files count as `Remote-only` in later runs;
+the same file added again is checked and removed again, and a changed one is
+uploaded first. `--dry-run` reports `Would remove locally` and changes nothing.
+
+Media is not in Git, so the bucket then holds the only copy. Turn on bucket
+versioning or backups first. There is no download command; restore files with
+your provider's tools, for example
+`aws s3 sync s3://<bucket>/media <ACTIVE_SPACE>/public/media`.
 
 ## Usage
 

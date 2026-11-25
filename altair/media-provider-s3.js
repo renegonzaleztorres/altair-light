@@ -50,7 +50,14 @@ class S3MediaProvider {
       signal?.removeEventListener('abort', abortUpload);
     }
     signal?.throwIfAborted();
+    await this.verify({ objectKey, size, contentType, sha256, signal });
+  }
 
+  // verify : check that the bucket holds this exact file (size, type and the
+  // sha256 stored with it) and, with MEDIA_PUBLISH_VERIFY_PUBLIC=true, that the
+  // CDN serves it. Used after each upload, and before a file published in an
+  // earlier run is removed locally.
+  async verify({ objectKey, size, contentType, sha256, signal }) {
     const remote = await this.client.send(new HeadObjectCommand({
       Bucket: this.configuration.bucket,
       Key: objectKey

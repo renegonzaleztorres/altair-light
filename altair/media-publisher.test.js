@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -45,12 +46,21 @@ const createFixture = async () => {
 };
 
 class FakeProvider {
-  constructor({ fail = false, failOnCall = 0, onUpload = null } = {}) {
+  constructor({ fail = false, failOnCall = 0, onUpload = null, verifyFails = [], onVerify = null } = {}) {
     this.fail = fail;
     this.failOnCall = failOnCall;
     this.onUpload = onUpload;
+    this.verifyFails = verifyFails;
+    this.onVerify = onVerify;
     this.calls = 0;
     this.uploads = [];
+    this.verified = [];
+  }
+
+  async verify(file) {
+    if (this.verifyFails.includes(file.objectKey)) throw new Error('Public delivery verification failed');
+    this.onVerify?.(file);
+    this.verified.push(file.objectKey);
   }
 
   async uploadAndVerify(file) {
@@ -76,11 +86,13 @@ test('publisher uploads new and edited media, skips unchanged bytes, and retains
 
   try {
     const first = await publishMedia({ configuration: fixture.configuration, provider });
-    assert.deepEqual(first, { ok: true, new: 1, updated: 0, unchanged: 0, remoteOnly: 0, failed: 0 });
+    assert.deepEqual(first, { ok: true, new: 1, updated: 0, unchanged: 0, remoteOnly: 0, removed: 0, failed: 0 });
     assert.equal(provider.uploads.length, 1);
     assert.equal(provider.uploads[0].objectKey, 'media/images/team.png');
     assert.equal(provider.uploads[0].contentType, 'image/png');
     assert.equal(provider.uploads[0].cacheControl, MEDIA_CACHE_CONTROL);
+    assert.deepEqual(provider.verified, [], 'nothing is verified again without MEDIA_PUBLISH_REMOVE_LOCAL');
+    assert.deepEqual(await readFile(imagePath), PNG, 'local files stay by default');
 
     const unchanged = await publishMedia({ configuration: fixture.configuration, provider });
     assert.equal(unchanged.unchanged, 1);
@@ -338,4 +350,143 @@ test('credential redaction handles prefix-related and regex-significant secrets'
     output,
     'short=[REDACTED] long=[REDACTED] symbols=[REDACTED] and repeat=[REDACTED]'
   );
+});
+
+const exists = (filePath) => access(filePath).then(() => true, () => false);
+
+const removalFixture = async () => {
+  const fixture = await createFixture();
+  fixture.configuration.removeLocal = true;
+  return fixture;
+};
+
+test('with removeLocal, published files are removed after the manifest records them', async () => {
+  const fixture = await removalFixture();
+  const { mediaPath, manifestPath } = fixture.configuration;
+  const nested = path.join(mediaPath, 'images', 'team', 'photo.png');
+  const top = path.join(mediaPath, 'logo.png');
+  await mkdir(path.dirname(nested), { recursive: true });
+  await writeFile(nested, PNG);
+  await writeFile(top, PNG);
+  await writeFile(path.join(mediaPath, '.gitkeep'), '');
+  try {
+    const provider = new FakeProvider();
+    const result = await publishMedia({ configuration: fixture.configuration, provider });
+    assert.deepEqual(result, { ok: true, new: 2, updated: 0, unchanged: 0, remoteOnly: 0, removed: 2, failed: 0 });
+    assert.deepEqual(provider.verified, [], 'files uploaded in this run were verified by the upload');
+    assert.equal(await exists(nested), false);
+    assert.equal(await exists(top), false);
+    assert.equal(await exists(path.join(mediaPath, 'images')), false, 'emptied folders are removed');
+    assert.deepEqual(await readdir(mediaPath), ['.gitkeep'], 'the media folder and .gitkeep stay');
+    const manifest = await readManifest(manifestPath, 'media');
+    assert.deepEqual(Object.keys(manifest.files), ['media/images/team/photo.png', 'media/logo.png']);
+
+    // Later runs see them as remote-only and change nothing
+    const later = await publishMedia({ configuration: fixture.configuration, provider });
+    assert.deepEqual(later, { ok: true, new: 0, updated: 0, unchanged: 0, remoteOnly: 2, removed: 0, failed: 0 });
+
+    // The same file added again is verified, not uploaded, and removed again
+    await writeFile(top, PNG);
+    const again = await publishMedia({ configuration: fixture.configuration, provider });
+    assert.equal(again.unchanged, 1);
+    assert.equal(again.removed, 1);
+    assert.equal(provider.uploads.length, 2);
+    assert.deepEqual(provider.verified, ['media/logo.png']);
+    assert.equal(await exists(top), false);
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('files published before removeLocal was turned on are verified again before removal', async () => {
+  const fixture = await createFixture();
+  const { mediaPath, manifestPath } = fixture.configuration;
+  await writeFile(path.join(mediaPath, 'kept.png'), PNG);
+  await writeFile(path.join(mediaPath, 'removed.png'), PNG);
+  try {
+    await publishMedia({ configuration: fixture.configuration, provider: new FakeProvider() });
+    await writeFile(path.join(mediaPath, 'new.png'), PNG);
+
+    const provider = new FakeProvider({ verifyFails: ['media/kept.png'] });
+    await assert.rejects(
+      publishMedia({ configuration: { ...fixture.configuration, removeLocal: true }, provider }),
+      (error) => /1 local media file\(s\) were not removed: media\/kept\.png: Public delivery verification failed/.test(error.message) &&
+        error.result?.ok === false && error.result.removed === 2 && error.result.failed === 1
+    );
+    assert.deepEqual(provider.verified, ['media/removed.png']);
+    assert.equal(await exists(path.join(mediaPath, 'kept.png')), true);
+    assert.equal(await exists(path.join(mediaPath, 'removed.png')), false);
+    assert.equal(await exists(path.join(mediaPath, 'new.png')), false);
+    const manifest = await readManifest(manifestPath, 'media');
+    assert.ok(manifest.files['media/new.png'], 'the upload was recorded before anything was removed');
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('a file that changes after it was inspected is kept', async () => {
+  const fixture = await createFixture();
+  const imagePath = path.join(fixture.configuration.mediaPath, 'edited.png');
+  await writeFile(imagePath, PNG);
+  try {
+    await publishMedia({ configuration: fixture.configuration, provider: new FakeProvider() });
+    const edited = Buffer.concat([PNG, Buffer.from('edited')]);
+    const provider = new FakeProvider({ onVerify: () => writeFileSync(imagePath, edited) });
+    await assert.rejects(
+      publishMedia({ configuration: { ...fixture.configuration, removeLocal: true }, provider }),
+      /media\/edited\.png: it changed after it was inspected, so it was kept/
+    );
+    assert.deepEqual(await readFile(imagePath), edited);
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('nothing is removed when an upload fails, on a dry run, or without a provider that can verify', async () => {
+  const fixture = await removalFixture();
+  const { mediaPath } = fixture.configuration;
+  await writeFile(path.join(mediaPath, 'a.png'), PNG);
+  await writeFile(path.join(mediaPath, 'b.png'), PNG);
+  try {
+    await assert.rejects(
+      publishMedia({ configuration: fixture.configuration, provider: new FakeProvider({ failOnCall: 2 }) }),
+      /simulated remote mismatch/
+    );
+    assert.deepEqual((await readdir(mediaPath)).sort(), ['a.png', 'b.png']);
+
+    const dryRun = await publishMedia({ configuration: fixture.configuration, dryRun: true });
+    assert.equal(dryRun.removed, 2, 'a dry run counts what would be removed');
+    assert.deepEqual((await readdir(mediaPath)).sort(), ['a.png', 'b.png']);
+
+    await assert.rejects(
+      publishMedia({ configuration: fixture.configuration, provider: { uploadAndVerify: async () => {} } }),
+      /requires a provider that can verify/
+    );
+    assert.deepEqual((await readdir(mediaPath)).sort(), ['a.png', 'b.png']);
+  } finally {
+    await rm(fixture.appRootPath, { recursive: true, force: true });
+  }
+});
+
+test('MEDIA_PUBLISH_REMOVE_LOCAL requires public verification and a CDN fallback to the same origin', () => {
+  const settings = {
+    appRootPath: '/srv/site', activeSpace: 'spaces/green', publicLocation: 'public', mediaLocation: 'media',
+    mediaCdnFallback: true, mediaCdnBaseUrl: 'https://cdn.example.com'
+  };
+  const env = {
+    MEDIA_PUBLISH_ENABLED: 'true', MEDIA_PUBLISH_BUCKET: 'site-media', MEDIA_PUBLISH_REGION: 'auto',
+    MEDIA_PUBLISH_ACCESS_KEY_ID: 'key', MEDIA_PUBLISH_SECRET_ACCESS_KEY: 'secret',
+    MEDIA_PUBLISH_VERIFY_PUBLIC: 'true', MEDIA_CDN_BASE_URL: 'https://cdn.example.com',
+    MEDIA_PUBLISH_REMOVE_LOCAL: 'true'
+  };
+  assert.equal(createPublisherConfiguration({ settings, env }).removeLocal, true);
+  assert.equal(createPublisherConfiguration({ settings, env: { ...env, MEDIA_PUBLISH_REMOVE_LOCAL: undefined } }).removeLocal, false);
+  assert.throws(() => createPublisherConfiguration({ settings, env: { ...env, MEDIA_PUBLISH_REMOVE_LOCAL: 'yes' } }),
+    /MEDIA_PUBLISH_REMOVE_LOCAL must be true or false/);
+  assert.throws(() => createPublisherConfiguration({ settings, env: { ...env, MEDIA_PUBLISH_VERIFY_PUBLIC: 'false' } }),
+    /requires MEDIA_PUBLISH_VERIFY_PUBLIC=true/);
+  assert.throws(() => createPublisherConfiguration({ settings: { ...settings, mediaCdnFallback: false }, env }),
+    /requires MEDIA_CDN_FALLBACK=true/);
+  assert.throws(() => createPublisherConfiguration({ settings: { ...settings, mediaCdnBaseUrl: 'https://other.example.com' }, env }),
+    /redirect to MEDIA_CDN_BASE_URL/);
 });

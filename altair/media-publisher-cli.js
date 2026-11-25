@@ -15,7 +15,7 @@ Usage:
   pnpm media:publish -- --json
 
 Options:
-  --dry-run  Inspect and classify without remote changes
+  --dry-run  Inspect and classify without remote or local changes
   --json     Emit one structured JSON result
   --help     Show this help
 `;
@@ -29,12 +29,13 @@ const redact = (value) => {
   return output.replace(/https?:\/\/[^\s]*[?&](?:X-Amz-|Signature)[^\s]*/gi, '[REDACTED_URL]');
 };
 
-const printHumanResult = (result, { dryRun }) => {
+const printHumanResult = (result, { dryRun, removeLocal }) => {
   console.log(dryRun ? 'Media publication dry run complete.' : 'Media publication complete.');
   console.log(`New: ${result.new}`);
   console.log(`Updated: ${result.updated}`);
   console.log(`Unchanged: ${result.unchanged}`);
   console.log(`Remote-only: ${result.remoteOnly}`);
+  if (removeLocal) console.log(`${dryRun ? 'Would remove locally' : 'Removed locally'}: ${result.removed}`);
   console.log(`Failed: ${result.failed}`);
 };
 
@@ -63,8 +64,8 @@ const main = async () => {
       activeSpace: settings.activeSpace,
       publicLocation: settings.publicLocation,
       mediaLocation: settings.mediaLocation,
-      mediaCdnFallback: false,
-      mediaCdnBaseUrl: ''
+      mediaCdnFallback: settings.mediaCdnFallback,
+      mediaCdnBaseUrl: settings.mediaCdnBaseUrl
     }
   });
   const releaseLock = await acquirePublicationLock(configuration.lockPath);
@@ -92,7 +93,7 @@ const main = async () => {
       signal: controller.signal
     });
     if (values.json) console.log(JSON.stringify(result));
-    else printHumanResult(result, { dryRun: values['dry-run'] });
+    else printHumanResult(result, { dryRun: values['dry-run'], removeLocal: configuration.removeLocal });
   } finally {
     provider?.destroy();
     await releaseLock();
@@ -106,7 +107,7 @@ try {
 } catch (error) {
   const result = {
     ok: false,
-    ...(error.result || { new: 0, updated: 0, unchanged: 0, remoteOnly: 0, failed: 1 }),
+    ...(error.result || { new: 0, updated: 0, unchanged: 0, remoteOnly: 0, removed: 0, failed: 1 }),
     error: redact(error.message)
   };
   if (process.argv.includes('--json')) console.log(JSON.stringify(result));

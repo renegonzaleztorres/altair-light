@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-11-24
+
+### Added
+- `MEDIA_PUBLISH_REMOVE_LOCAL=true` makes `pnpm media:publish` remove each local media file once it is published, for servers whose disk should not keep media, such as a development instance on a cloud VPS. It is off by default and requires `MEDIA_PUBLISH_VERIFY_PUBLIC=true` and `MEDIA_CDN_FALLBACK=true` with the same `MEDIA_CDN_BASE_URL`. Files are removed only after the manifest records them; files from earlier runs are verified again in the bucket and through the CDN first; a file that changed meanwhile is kept; and folders left empty are removed. The CLI reports `Removed locally` (`Would remove locally` on a dry run), and the JSON result has `removed`
+- The S3 adapter has `verify()`, the bucket and public-delivery checks that `uploadAndVerify()` runs after each upload
+
+### Changed
+- The publisher reads `MEDIA_CDN_FALLBACK` and `MEDIA_CDN_BASE_URL` through the same settings as the server, so an invalid fallback origin now stops the publisher as it stops the server
+- The JSON result of `pnpm media:publish -- --json` always includes `removed` (0 unless removal is on)
+
 ## [4.3.0] - 2026-11-03
 
 ### Security

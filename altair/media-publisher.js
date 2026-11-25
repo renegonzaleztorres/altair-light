@@ -72,6 +72,22 @@ const createPublisherConfiguration = ({ settings, env = process.env } = {}) => {
     throw new Error('MEDIA_CDN_BASE_URL is required when MEDIA_PUBLISH_VERIFY_PUBLIC=true');
   }
 
+  // Removing local copies makes the CDN the only place a visitor can get a
+  // file, so it is allowed only when every file is checked through the CDN
+  // first and the server redirects local misses to that same CDN.
+  const removeLocal = envBoolean(env, 'MEDIA_PUBLISH_REMOVE_LOCAL', false);
+  if (removeLocal) {
+    if (!verifyPublic) {
+      throw new Error('MEDIA_PUBLISH_REMOVE_LOCAL=true requires MEDIA_PUBLISH_VERIFY_PUBLIC=true, so each file is removed only after the CDN serves it');
+    }
+    if (!paths.cdnBaseUrl) {
+      throw new Error('MEDIA_PUBLISH_REMOVE_LOCAL=true requires MEDIA_CDN_FALLBACK=true, so requests for removed files are redirected to the CDN');
+    }
+    if (new URL(publicBaseUrl).origin !== paths.cdnBaseUrl) {
+      throw new Error('MEDIA_PUBLISH_REMOVE_LOCAL=true requires the CDN fallback to redirect to MEDIA_CDN_BASE_URL, the address the files are verified at');
+    }
+  }
+
   return {
     ...paths,
     provider,
@@ -85,6 +101,7 @@ const createPublisherConfiguration = ({ settings, env = process.env } = {}) => {
       ...(sessionToken ? { sessionToken } : {})
     },
     verifyPublic,
+    removeLocal,
     forcePathStyle: envBoolean(env, 'MEDIA_PUBLISH_FORCE_PATH_STYLE', false),
     cacheControl: MEDIA_CACHE_CONTROL
   };
@@ -221,16 +238,77 @@ const sortManifestFiles = (files) => Object.fromEntries(
   Object.entries(files).sort(([left], [right]) => left.localeCompare(right))
 );
 
+// removeEmptyDirectories : remove the folders that removing files left empty,
+// up to but never including the media folder itself. A folder that still holds
+// anything (a .gitkeep, a file the publisher skips) is left alone.
+const removeEmptyDirectories = async (mediaPath, directories) => {
+  const deepestFirst = [...directories].sort((left, right) => right.length - left.length);
+  for (let directory of deepestFirst) {
+    while (directory.startsWith(`${mediaPath}${path.sep}`)) {
+      try {
+        await fs.rmdir(directory);
+      } catch {
+        break;
+      }
+      directory = path.dirname(directory);
+    }
+  }
+};
+
+// removeLocalCopies : the second pass when MEDIA_PUBLISH_REMOVE_LOCAL=true. It
+// runs only after every upload succeeded and the manifest was written, so a
+// removed file is always recorded there. A file published in an earlier run is
+// checked in the bucket and through the CDN again before it is removed, and a
+// file that changed since it was inspected is kept. Every file is attempted;
+// failures are reported together and fail the run.
+const removeLocalCopies = async ({ configuration, provider, candidates, result, signal }) => {
+  const failures = [];
+  const directories = new Set();
+  try {
+    for (const { file, verified } of candidates) {
+      signal?.throwIfAborted();
+      try {
+        if (!verified) await provider.verify({ ...file, signal });
+        const current = await fs.lstat(file.filePath);
+        if (!current.isFile() || current.size !== file.size ||
+            current.mtimeMs !== file.modifiedTimeMs || current.ino !== file.ino) {
+          throw new Error('it changed after it was inspected, so it was kept');
+        }
+        await fs.rm(file.filePath);
+        result.removed += 1;
+        directories.add(path.dirname(file.filePath));
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        failures.push(`${file.objectKey}: ${error.message}`);
+      }
+    }
+  } finally {
+    await removeEmptyDirectories(configuration.mediaPath, directories);
+  }
+  if (failures.length > 0) {
+    result.failed += failures.length;
+    throw new Error(`${failures.length} local media file(s) were not removed: ${failures.join('; ')}`);
+  }
+};
+
 // publishMedia : upload new and changed media, then record them in the manifest.
-// signal (optional AbortSignal) stops between files and aborts the upload in
-// flight. On failure or abort, uploads that already succeeded are still
-// written to the manifest, so the next run does not upload them again.
+// With configuration.removeLocal, the local copies are then removed (see
+// removeLocalCopies). signal (optional AbortSignal) stops between files and
+// aborts the upload in flight. On failure or abort, uploads that already
+// succeeded are still written to the manifest, so the next run does not
+// upload them again.
 const publishMedia = async ({ configuration, provider = null, dryRun = false, now = () => new Date(), signal } = {}) => {
   await assertMediaContainment(configuration);
+  if (configuration.removeLocal && !dryRun && typeof provider?.verify !== 'function') {
+    throw new Error('Removing local media requires a provider that can verify published files');
+  }
   const manifest = await readManifest(configuration.manifestPath, configuration.mediaLocation);
   const nextFiles = { ...manifest.files };
-  const result = { ok: true, new: 0, updated: 0, unchanged: 0, remoteOnly: 0, failed: 0 };
+  const result = { ok: true, new: 0, updated: 0, unchanged: 0, remoteOnly: 0, removed: 0, failed: 0 };
   const localKeys = new Set();
+  // Local files that may be removed once the manifest is written; verified is
+  // true for files uploaded and verified in this run
+  const removable = [];
   let changed = false;
   const writeManifest = () => writeManifestAtomic(configuration.manifestPath, {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
@@ -249,12 +327,16 @@ const publishMedia = async ({ configuration, provider = null, dryRun = false, no
           previous.bucket === configuration.bucket && previous.endpoint === configuration.endpoint &&
           previous.region === configuration.region) {
         result.unchanged += 1;
+        if (configuration.removeLocal) removable.push({ file, verified: false });
         continue;
       }
 
       const classification = previous ? 'updated' : 'new';
       result[classification] += 1;
-      if (dryRun) continue;
+      if (dryRun) {
+        if (configuration.removeLocal) removable.push({ file, verified: false });
+        continue;
+      }
       if (!provider || typeof provider.uploadAndVerify !== 'function') {
         throw new Error('A media provider is required for publication');
       }
@@ -275,6 +357,7 @@ const publishMedia = async ({ configuration, provider = null, dryRun = false, no
         publishedAt: now().toISOString()
       };
       changed = true;
+      if (configuration.removeLocal) removable.push({ file, verified: true });
     }
   } catch (error) {
     result.ok = false;
@@ -292,6 +375,19 @@ const publishMedia = async ({ configuration, provider = null, dryRun = false, no
 
   result.remoteOnly = Object.keys(manifest.files).filter((key) => !localKeys.has(key)).length;
   if (!dryRun && changed) await writeManifest();
+  if (configuration.removeLocal) {
+    if (dryRun) {
+      result.removed = removable.length;
+    } else {
+      try {
+        await removeLocalCopies({ configuration, provider, candidates: removable, result, signal });
+      } catch (error) {
+        result.ok = false;
+        error.result = result;
+        throw error;
+      }
+    }
+  }
   return result;
 };
 

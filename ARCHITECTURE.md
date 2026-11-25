@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | --- | --- |
-| Bundled Altair module | 4.3.0 |
+| Bundled Altair module | 4.4.0 |
 | Document owner | This application repository |
 | Last reviewed | 2026-11-03 |
 | Framework architecture | [`altair/ARCHITECTURE.md`](altair/ARCHITECTURE.md) |
@@ -269,6 +269,7 @@ The project uses the following media environment contract:
 | `MEDIA_PUBLISH_REGION` | None | Supply the AWS region or `auto` for R2. |
 | `MEDIA_PUBLISH_FORCE_PATH_STYLE` | `false` | Enable only for providers requiring path-style bucket addressing. |
 | `MEDIA_PUBLISH_VERIFY_PUBLIC` | `false` | Optionally verify delivery through `MEDIA_CDN_BASE_URL`. |
+| `MEDIA_PUBLISH_REMOVE_LOCAL` | `false` | Enable only on a server whose disk should not keep published media; requires public verification and the CDN fallback. |
 | `MEDIA_PUBLISH_ACCESS_KEY_ID` | None | Required publisher-specific access-key secret. |
 | `MEDIA_PUBLISH_SECRET_ACCESS_KEY` | None | Required publisher-specific secret key. |
 | `MEDIA_PUBLISH_SESSION_TOKEN` | Empty | Optional temporary-credential token. |
